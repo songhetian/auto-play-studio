@@ -17,7 +17,12 @@ export function useInstanceActions() {
   const invalidate = () => qc.invalidateQueries({ queryKey: ['instances'] })
 
   const create = useMutation({
-    mutationFn: (tool: ToolType) => api.createInstance({ name: toolById(tool).name, tool }),
+    /**
+     * 带 planId 时从方案起手：把方案里的配置拷一份给新实例。
+     * 之后两者互不影响 —— 改实例不改方案，改方案不改已有实例。
+     */
+    mutationFn: ({ tool, planId, name }: { tool: ToolType; planId?: string; name?: string }) =>
+      api.createInstance({ name: name || toolById(tool).name, tool, planId }),
     onSuccess: (inst) => {
       invalidate()
       // 新建后直接进配置页：空实例没有可运行的东西，先去配

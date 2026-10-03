@@ -16,6 +16,20 @@ export function resolveEngineOrigin(protocol: string): string {
 const IS_FILE = typeof location !== 'undefined' && location.protocol === 'file:'
 const BASE = `${resolveEngineOrigin(IS_FILE ? 'file:' : 'http:')}/api`
 
+/**
+ * 方案（可复用的配置模板）：全局存一份，跨工具、跨实例复用。
+ *
+ * 它跟实例**不双向同步** —— 存的是快照，之后改实例不改方案，改方案不改已有实例。
+ */
+export interface Plan {
+  id: string
+  tool: string
+  name: string
+  config: Record<string, unknown>
+  createdAt: string
+  updatedAt: string
+}
+
 /** 一张已上传的对比表 */
 export interface CompareTable {
   name: string
@@ -271,7 +285,8 @@ export const api = {
   /** 引擎启动时那次恢复的结果，控制台用来展示「已恢复 N 个被中断实例」 */
   recoverySummary: () => json<RecoverySummary>('/instances/recovery'),
 
-  createInstance: (payload: { name: string; tool: Instance['tool'] }) =>
+  /** planId：从哪个方案起手。方案只是把配置拷一份过来，之后与实例互不影响 */
+  createInstance: (payload: { name: string; tool: Instance['tool']; planId?: string }) =>
     json<unknown>('/instances', { method: 'POST', body: JSON.stringify(payload) }).then(normalizeInstance),
 
   saveConfig: (id: string, config: InstanceConfig) =>
@@ -367,7 +382,30 @@ export const api = {
   /** 上一次的对比结果（页面上刷新后仍能还原） */
   compareResult: (id: string) => json<CompareReport>(`/instances/${id}/compare/result`),
 
-  savePlan: (id: string) => json<{ path: string }>(`/instances/${id}/compare/plan`, { method: 'POST' }),
+  /** 把当前的字段角色 / 列映射 / 容差存成方案（进全局库，删实例不丢） */
+  savePlan: (id: string, name: string) =>
+    json<{ id: string; name: string }>(`/instances/${id}/compare/plan`, {
+      method: 'POST',
+      body: JSON.stringify({ name }),
+    }),
+
+  /** 把方案里的字段角色 / 列映射 / 容差套回当前实例（按主表名匹配） */
+  applyPlan: (id: string, planId: string) =>
+    json<{ ok: true; name: string; tolerance: number }>(`/instances/${id}/compare/plan/apply`, {
+      method: 'POST',
+      body: JSON.stringify({ planId }),
+    }),
+
+  // ── 方案（配置模板）──
+  listPlans: (tool?: string) => json<Plan[]>(`/plans${tool ? `?tool=${encodeURIComponent(tool)}` : ''}`),
+
+  createPlan: (payload: { tool: string; name: string; config: Record<string, unknown> }) =>
+    json<{ id: string }>('/plans', { method: 'POST', body: JSON.stringify(payload) }),
+
+  patchPlan: (id: string, patch: { name?: string; config?: Record<string, unknown> }) =>
+    json<Plan>(`/plans/${id}`, { method: 'PATCH', body: JSON.stringify(patch) }),
+
+  removePlan: (id: string) => json<{ ok: true }>(`/plans/${id}`, { method: 'DELETE' }),
 
   // ── 图像素材库 ──
   listImages: () => json<ImageAsset[]>('/images'),

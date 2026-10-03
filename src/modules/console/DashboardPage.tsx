@@ -128,7 +128,7 @@ export default function DashboardPage() {
                 count={countByTool[t.id] ?? 0}
                 badge={t.multiOpen ? <Badge variant="secondary">可多开</Badge> : undefined}
                 pending={create.isPending}
-                onPrimary={() => create.mutate(t.id)}
+                onPrimary={() => create.mutate({ tool: t.id })}
               />
             ))}
           </div>

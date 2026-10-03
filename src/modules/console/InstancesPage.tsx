@@ -62,7 +62,7 @@ export default function InstancesPage() {
                 key={t.id}
                 variant="outline"
                 size="sm"
-                onClick={() => create.mutate(t.id)}
+                onClick={() => create.mutate({ tool: t.id })}
                 disabled={create.isPending}
                 title={t.desc}
               >
@@ -145,7 +145,7 @@ export default function InstancesPage() {
                   </Button>
                 ) : (
                   TOOLS.slice(0, 1).map((t) => (
-                    <Button key={t.id} size="sm" onClick={() => create.mutate(t.id)} disabled={create.isPending}>
+                    <Button key={t.id} size="sm" onClick={() => create.mutate({ tool: t.id })} disabled={create.isPending}>
                       <Icon name="rocket" size={13} />
                       新建{t.name}
                     </Button>

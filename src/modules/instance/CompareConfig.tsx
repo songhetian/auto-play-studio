@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { motion } from 'motion/react'
 import { api } from '@/lib/api'
 import { useInstanceStore } from '@/stores/instanceStore'
@@ -8,6 +8,7 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Icon } from '@/components/icon'
@@ -86,7 +87,28 @@ export default function CompareConfig({ id }: { id: string }) {
     onSuccess: () => qc.invalidateQueries({ queryKey: ['instances'] }),
   })
 
-  const planMut = useMutation({ mutationFn: () => api.savePlan(id) })
+  // ── 方案（全局库）：存的是「字段角色 + 列映射 + 容差」，换实例、换批文件都能套 ──
+  const { data: plans = [] } = useQuery({ queryKey: ['plans', 'cmp'], queryFn: () => api.listPlans('cmp') })
+  const [planName, setPlanName] = useState('')
+  const [pickedPlan, setPickedPlan] = useState('')
+
+  const savePlanMut = useMutation({
+    mutationFn: (name: string) => api.savePlan(id, name),
+    onSuccess: () => {
+      setPlanName('')
+      qc.invalidateQueries({ queryKey: ['plans'] })
+    },
+  })
+
+  const applyPlanMut = useMutation({
+    mutationFn: (planId: string) => api.applyPlan(id, planId),
+    onSuccess: () => {
+      // 播种以「A 表变了」为信号，而载入方案并不换文件 ——
+      // 不把种子清掉，界面上会一直显示载入前的旧角色
+      seeded.current = ''
+      qc.invalidateQueries({ queryKey: ['instances'] })
+    },
+  })
 
   if (!inst || !cfg) {
     return (
@@ -128,10 +150,6 @@ export default function CompareConfig({ id }: { id: string }) {
         >
           <Icon name="wand" size={13} />
           {autoMapMut.isPending ? '匹配中…' : '重新智能匹配'}
-        </Button>
-        <Button variant="outline" onClick={() => planMut.mutate()} disabled={!cfg.primaryFile}>
-          <Icon name="fileText" size={13} />
-          {planMut.data ? '方案已保存' : '保存方案'}
         </Button>
         <Button size="sm" onClick={() => saveMut.mutate()} disabled={saveMut.isPending}>
           <Icon name="check" size={13} />
@@ -309,6 +327,83 @@ export default function CompareConfig({ id }: { id: string }) {
                 </div>
                 <div>· 整体结论取最严重的一项</div>
               </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>方案</CardTitle>
+              <span className="text-[12px] text-muted-foreground">存进全局库，别的实例也能用</span>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {!cfg?.primaryFile ? (
+                <p className="text-[12px] text-muted-foreground">先上传 A 表（基准表），才能存方案或载入方案。</p>
+              ) : (
+                <>
+                  <div className="space-y-1.5">
+                    <Label>载入方案</Label>
+                    <div className="flex gap-2">
+                      <Select value={pickedPlan} onValueChange={setPickedPlan}>
+                        <SelectTrigger className="flex-1">
+                          <SelectValue placeholder={plans.length ? '选择一个方案' : '还没有存过方案'} />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {plans.map((p) => (
+                            <SelectItem key={p.id} value={p.id}>
+                              {p.name}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        disabled={!pickedPlan || applyPlanMut.isPending}
+                        onClick={() => applyPlanMut.mutate(pickedPlan)}
+                      >
+                        {applyPlanMut.isPending ? '载入中…' : '载入'}
+                      </Button>
+                    </div>
+                    <p className="text-[11.5px] text-muted-foreground">
+                      按主表名匹配：换成另一张 A 表时方案不生效，免得容差这类口径张冠李戴。
+                    </p>
+                  </div>
+
+                  <div className="space-y-1.5 border-t border-border pt-3">
+                    <Label>另存为方案</Label>
+                    <div className="flex gap-2">
+                      <Input
+                        value={planName}
+                        onChange={(e) => setPlanName(e.target.value)}
+                        placeholder="方案名，如：日对账"
+                      />
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        disabled={!planName.trim() || savePlanMut.isPending}
+                        onClick={() => savePlanMut.mutate(planName.trim())}
+                      >
+                        {savePlanMut.isPending ? '保存中…' : '保存'}
+                      </Button>
+                    </div>
+                  </div>
+                </>
+              )}
+
+              {(savePlanMut.isSuccess || applyPlanMut.isSuccess) && (
+                <div className="flex items-center gap-1.5 text-[11.5px] text-muted-foreground">
+                  <Icon name="check" size={12} />
+                  {savePlanMut.isSuccess ? `已保存为「${savePlanMut.data.name}」` : `已载入「${applyPlanMut.data?.name}」`}
+                </div>
+              )}
+              {(savePlanMut.isError || applyPlanMut.isError) && (
+                <Alert variant="destructive">
+                  <Icon name="error" size={16} />
+                  <AlertDescription>
+                    {((savePlanMut.error ?? applyPlanMut.error) as Error).message}
+                  </AlertDescription>
+                </Alert>
+              )}
             </CardContent>
           </Card>
 
