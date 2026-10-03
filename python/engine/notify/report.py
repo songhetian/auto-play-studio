@@ -9,10 +9,12 @@
 """
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Mapping, Sequence
 
 from .dispatch import deliver
 from .model import Channel, NotifyPayload
+from .quiet import in_quiet_window
 from .. import db
 
 
@@ -29,10 +31,12 @@ def report_hit(
     rect: "list[int] | None" = None,
     channels: "Sequence[Channel] | None" = None,
     routing: "Mapping[str, Sequence[str]] | None" = None,
+    now: "datetime | None" = None,
 ) -> int:
     """记一次命中并把通知发出去，返回事件 id。
 
-    `channels` / `routing` 不传就读通知配置（真机路径）；传了就是注入（测试路径）。
+    `channels` / `routing` / `now` 不传就走真机路径（读配置、取当前时间）；传了就是注入（测试路径）。
+    静音期间**事件照记、通道不发** —— 命中不能因为人在开会就丢。
     """
     event_id = db.record_hit_event(
         instance_id=instance_id,
@@ -61,6 +65,7 @@ def report_hit(
         ),
         targets,
         wanted,
+        muted=in_quiet_window(cfg, now),
     )
     if notified:
         db.set_hit_notified(event_id, notified)

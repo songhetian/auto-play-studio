@@ -18,13 +18,21 @@ def deliver(
     payload: NotifyPayload,
     channels: Iterable[Channel],
     routing: Mapping[str, list[str]],
+    muted: bool = False,
 ) -> dict[str, str]:
-    """把一次命中发给该走的通道，返回 {通道名: 'ok' | 'fail: 原因'}。"""
+    """把一次命中发给该走的通道，返回 {通道名: 'ok' | 'fail: 原因' | 'skip: 静音时段'}。
+
+    静音判定放在这里而不是调用方：这里是通道的唯一出口，
+    散落出去就会出现「桌面静音了、webhook 照发」这种半静音。
+    """
     wanted = routing.get(payload.level, ())
     results: dict[str, str] = {}
 
     for channel in channels:
         if channel.name not in wanted:
+            continue
+        if muted:
+            results[channel.name] = "skip: 静音时段"
             continue
         try:
             channel.send(payload)

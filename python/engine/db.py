@@ -236,6 +236,8 @@ DEFAULT_NOTIFY_CONFIG = {
     "routing": {"info": [], "warn": ["desktop"], "alert": ["desktop"]},
     # 没填地址就是不发：默认别指向任何地方
     "webhook": {"url": "", "kind": "wecom"},
+    # 静音：默认关。默认给一段「下班后」只是让人一眼看懂这两个框填什么
+    "quiet": {"enabled": False, "from": "22:00", "to": "08:00"},
 }
 
 
@@ -264,6 +266,13 @@ def _merged_notify_config(saved: dict[str, Any]) -> dict[str, Any]:
         cfg["webhook"]["url"] = str(wh.get("url") or "")
         if wh.get("kind") in WEBHOOK_KINDS:
             cfg["webhook"]["kind"] = wh["kind"]
+    quiet = saved.get("quiet")
+    if isinstance(quiet, dict):
+        cfg["quiet"]["enabled"] = bool(quiet.get("enabled"))
+        for key in ("from", "to"):
+            value = quiet.get(key)
+            if isinstance(value, str):
+                cfg["quiet"][key] = value
     return cfg
 
 
