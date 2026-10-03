@@ -23,10 +23,10 @@ describe('导航信息架构', () => {
     expect(byGroup.assist).toEqual(['macro'])
   })
 
-  it('十一个条目、路径唯一', () => {
+  it('十二个条目、路径唯一', () => {
     const items = allNavItems()
-    expect(items).toHaveLength(11)
-    expect(new Set(items.map((i) => i.path)).size).toBe(11)
+    expect(items).toHaveLength(12)
+    expect(new Set(items.map((i) => i.path)).size).toBe(12)
   })
 
   it('资源组放的是「全局一份、不可多开」的东西，不是工具', () => {

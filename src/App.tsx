@@ -8,6 +8,7 @@ import AssetLibraryPage from '@/modules/assets/AssetLibraryPage'
 import KbPage from '@/modules/kb/KbPage'
 import ExcelPrepPage from '@/modules/excel/ExcelPrepPage'
 import SettingsPage from '@/modules/settings/SettingsPage'
+import HitEventsPage from '@/modules/alerts/HitEventsPage'
 import ConfigPage from '@/modules/instance/ConfigPage'
 import RunPage from '@/modules/instance/RunPage'
 import { useInstances } from '@/modules/console/useInstances'
@@ -59,6 +60,7 @@ export default function App() {
           <Route path="/kb" element={<KbPage />} />
           <Route path="/excel" element={<ExcelPrepPage />} />
           <Route path="/settings" element={<SettingsPage />} />
+          <Route path="/hits" element={<HitEventsPage />} />
         </Route>
 
         <Route element={<InstanceShell />}>

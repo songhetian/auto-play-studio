@@ -88,6 +88,15 @@ export const NAV_GROUPS: NavGroup[] = [
         icon: 'instances',
         keywords: ['instances', '列表', '实例', '任务', '多开', '管理'],
       },
+      {
+        id: 'hits',
+        label: '命中事件',
+        desc: '所有工具的命中记录，跨实例可检索；通知发没发出去都写在每一条上',
+        path: '/hits',
+        icon: 'bell',
+        // 别名挑「只有它能命中」的：「告警」「提醒」是监控工具的词，占了会让搜索带出两个
+        keywords: ['hits', 'events', '命中', '命中记录', '事件', '未读', '通知结果', '角标'],
+      },
     ],
   },
   ...toolGroupNodes(),

@@ -1,5 +1,6 @@
 import { normalizeInstance, normalizeInstances } from '@/lib/instanceNormalize'
 import type { Instance, Row, InstanceConfig } from '@/schemas/instance'
+import { hitEventQuery, type HitEvent, type HitEventQuery } from '@/lib/hitEvents'
 
 /** 本机引擎地址（与 electron/main.ts 的 ENGINE_PORT 保持一致）。 */
 export const ENGINE_ORIGIN = 'http://127.0.0.1:8731'
@@ -251,6 +252,14 @@ export interface RunSummary {
   pending: PendingRow[]
 }
 
+/** 通知配置：通道启停 + 每个级别走哪些通道 + webhook + 静音时段 */
+export interface NotifyConfig {
+  channels: Record<string, boolean>
+  routing: Record<string, string[]>
+  webhook: { url: string; kind: string }
+  quiet: { enabled: boolean; from: string; to: string }
+}
+
 export const api = {
   // 实例一律过一遍归一化：引擎的老记录会缺 columns / hotkeys 这类后加字段
   listInstances: async () => normalizeInstances(await json<unknown>('/instances')),
@@ -284,6 +293,29 @@ export const api = {
     json<Array<{ assetId: string; similarity: number; rect: number[] | null; ts: string }>>(
       `/instances/${id}/monitor-hits`,
     ),
+
+  // ── 命中事件（工单 02）──
+  /** 跨实例的命中事件；不带筛选就是看全局 */
+  hitEvents: (q: HitEventQuery = {}) => {
+    const s = hitEventQuery(q)
+    return json<HitEvent[]>(`/hit-events${s ? `?${s}` : ''}`)
+  },
+
+  /** 未读命中数：托盘角标与页面红点 */
+  hitUnreadCount: () => json<{ count: number }>('/hit-events/unread-count'),
+
+  /** 标记已读；ids 为空数组 = 全部标记 */
+  markHitsRead: (ids: number[] = []) =>
+    json<{ marked: number }>('/hit-events/read', { method: 'POST', body: JSON.stringify({ ids }) }),
+
+  notifyConfig: () => json<NotifyConfig>('/settings/notify'),
+
+  /** 合入一块通知配置（配置页每次只提交当前那一块），回完整配置 */
+  saveNotifyConfig: (patch: Partial<NotifyConfig>) =>
+    json<NotifyConfig>('/settings/notify', { method: 'PUT', body: JSON.stringify(patch) }),
+
+  /** 测试发送：走所有启用通道，回逐通道结果（失败原因给用户看） */
+  testNotify: () => json<Record<string, string>>('/settings/notify/test', { method: 'POST' }),
 
   uploadExcel: async (id: string, file: File) => {
     const fd = new FormData()
