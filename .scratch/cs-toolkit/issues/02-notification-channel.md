@@ -154,6 +154,42 @@ seam = `deliver(payload, channels, routing)`，返回 `{通道名: 'ok' | 'fail:
 - 踩到：navModel 的别名规矩是「挑只有它能命中的」—— 我一开始给「命中事件」挂了 `告警`/`提醒`，
   把「用户输告警只出桌面图片监控」这条既有断言撞坏了。别名按规矩收紧。
 
+# 方案升格（用户拍板：按推荐 C 为主 + B 为辅，TDD）
+
+> 结论先写：**「方案」≠ 通用概念**，仓库里它原本只是 cmp 的存盘按钮，且存在 `uploads/<iid>/`
+> 下（删实例即丢），更糟的是**存完全仓库没有任何地方读它** —— 一个假功能。
+> 用户原疑问「有了方案还要不要实例」的答案是：两者正交（方案=配置模板层，实例=运行主体层），
+> 不是替代关系。
+
+**C1 ✅ 方案存储层**（`python/engine/plans.py` + `db.py` 新表 `plans`）
+- 全局存一份，跨工具、跨实例复用；与实例**不双向同步**（快照语义）。
+- `create_plan/list_plans/get_plan/update_plan/delete_plan`；`list_plans` 按 rowid 倒序（同秒不跳）。
+- `tests/test_plans.py` 8 例（含「方案是快照不是实例的活链接」反证）。
+
+**C2 ✅ 方案端点**（`main.py` GET/POST/GET one/PATCH/DELETE `/api/plans`）
+- `POST` 校验 tool 必须在 `DEFAULT_CONFIG`（白名单）；`tests/test_plans_api.py` 6 例。
+
+**C3 ✅ 新建实例套用方案**（`POST /api/instances` 支持 `planId`）
+- 以默认配置为底 `deep_merge` 方案配置：方案可只写关心的几项，其余由默认值补齐（不会抹掉 hotkeys）。
+- tool 不一致 / 方案不存在 → 400 / 404 且**不建实例**；`tests/test_plans_apply.py` 5 例。
+
+**C4 ✅ cmp 方案进全局库 + 补上消费方**（`compare/routes.py`）
+- `save_plan` 写 plans 表（不再落实例目录）；新增 `plan/apply`：字段角色 / 列映射 / 容差
+- 套回当前实例（按主表名匹配，换表不生效）；`tests/test_compare_plan.py` 5 例。
+- 删死代码 `config_io.save/load_config_file`、`auto_config_path`（连同其测试），保留 `dump_config/apply_config`。
+
+**C5 ✅ 前端接入**
+- `api.ts`：plans CRUD + `savePlan(name)` + `applyPlan` + `createInstance(planId?)`。
+- `CompareConfig` 方案卡片：另存为方案（填名）+ 载入方案；载入后清播种信号强刷界面。
+- `ToolLandingPage` 新增「从方案新建」卡片，列出该工具方案一键起手。
+- `create` mutation 改收对象 `{tool, planId?, name?}`，三处调用点同步。
+
+**剩余（暂未做）**
+- B 为辅「免实例快速跑」：无 iid 一次性执行端点 + 页面（对照 `/excel` 模式）。
+- 方案管理页 / 跨工具方案列表（navModel 未新增条目，按需再补）。
+- 其它工具（rpa/monitor/logi/macro）配置页的「另存为方案」：通用能力已就位，
+  但每个工具配置页的入口未统一挂载。
+
 **接下来**（按序，一片一 seam）：
 - S7b 设置页的**通知配置区块**：通道启停 / 级别路由 / webhook 地址与类型 / 静音时段 + 测试发送
   （引擎端点都已就绪，现在只能靠 curl 配，等于这功能对用户不存在）。
