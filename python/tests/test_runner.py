@@ -285,8 +285,15 @@ def test_unknown_placeholder_never_reaches_the_keyboard(make_instance, order_xls
     assert last_run_records(iid) == [("张三", "err"), ("李四", "err")]
 
 
-def test_stop_brings_instance_back_to_idle(make_instance, order_xlsx, wait_status):
-    iid = make_instance("rpa", rpa_cfg(order_xlsx))
+def test_stop_brings_instance_back_to_idle(make_instance, xlsx_factory, wait_status):
+    """停止后回到 idle，且不再继续跑剩下的行。
+
+    行数给到 20（× 0.3s = 6s）：只用两行的话整批 0.6s 就跑完了，
+    整机繁忙时它会在「等到 running」之前自己结束 —— 那时 stop() 因 idle→stopping
+    非法而返回 False，这条断言就成了掷骰子（全量跑时偶发失败过一次）。
+    """
+    path = xlsx_factory(["客户名称"], [[f"客户{i}"] for i in range(20)], name="many.xlsx")
+    iid = make_instance("rpa", rpa_cfg(path))
     executor = FakeExecutor(delay=0.3)
     runner = InstanceRunner(iid, executor=executor, driver=FakeDriver())
 
@@ -294,7 +301,7 @@ def test_stop_brings_instance_back_to_idle(make_instance, order_xlsx, wait_statu
     assert wait_status(iid, {"running"}, 5) == "running"
     assert runner.stop()
     assert wait_status(iid, {"idle"}, 10) == "idle"
-    assert len(executor.calls) < 2, "停止后不应继续执行剩余行"
+    assert len(executor.calls) < 20, "停止后不应继续执行剩余行"
 
 
 def test_skip_can_be_disabled(make_instance, order_xlsx, wait_status):

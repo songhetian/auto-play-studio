@@ -1,12 +1,10 @@
-"""配置存取（v2）：保存“A 表参与字段 + 各对比表列映射”，按文件名复用。
+"""方案（列映射模板）的存取格式。
 
-用途：配置好一组文件后保存为 .json；下次换同结构文件一键载入，实现多次对比复用。
+用途：配好一组文件后把「字段角色 + 各对比表列映射 + 容差」存成方案；
+下次换同结构文件一键载入，省掉每次重新选列。
 映射按【文件名】匹配，因此载入时只要当前已上传同名文件即可复用。
 """
 from __future__ import annotations
-
-import json
-import os
 
 
 def dump_config(primary, primary_fields, others, tolerance) -> dict:
@@ -23,26 +21,6 @@ def dump_config(primary, primary_fields, others, tolerance) -> dict:
             for o in others
         ],
     }
-
-
-def save_config_file(path, primary, primary_fields, others, tolerance):
-    cfg = dump_config(primary, primary_fields, others, tolerance)
-    with open(path, "w", encoding="utf-8") as fh:
-        json.dump(cfg, fh, ensure_ascii=False, indent=2)
-
-
-def load_config_file(path) -> dict:
-    with open(path, "r", encoding="utf-8") as fh:
-        cfg = json.load(fh)
-    if not isinstance(cfg, dict) or "primary_fields" not in cfg:
-        raise ValueError("配置文件格式不正确（需要 v2 结构）")
-    return cfg
-
-
-def auto_config_path() -> str:
-    base = os.path.join(os.path.expanduser("~"), "AppData", "Roaming", "ExcelCompare")
-    os.makedirs(base, exist_ok=True)
-    return os.path.join(base, "last_config.json")
 
 
 def apply_config(cfg: dict, primary, primary_fields, others, tolerance):

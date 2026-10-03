@@ -1,22 +1,18 @@
-"""Seam：方案存取。
+"""Seam：方案（列映射模板）的存取格式。
 
 配好一组文件后存成方案，下次换同结构的文件一键复用 —— 省掉每次重新选列。
 映射按【文件名】匹配，所以文件换了只要名字/结构没变就能直接套用。
 """
 from __future__ import annotations
 
-import json
-
-from engine.compare.config_io import apply_config, dump_config, load_config_file, save_config_file
+from engine.compare.config_io import apply_config, dump_config
 
 
-def test_dump_then_load_roundtrip(tmp_path, front_backend, primary_fields):
+def test_dump_config_keeps_everything_the_plan_needs(front_backend, primary_fields):
     a, b = front_backend
     others = [{"table": b, "maps": {"订单号": "订单号", "退差金额": "退差金额"}}]
-    path = str(tmp_path / "方案.json")
 
-    save_config_file(path, a, primary_fields, others, 0.05)
-    cfg = load_config_file(path)
+    cfg = dump_config(a, primary_fields, others, 0.05)
 
     assert cfg["version"] == 2
     assert cfg["primary"] == "前台.xlsx"
@@ -80,13 +76,3 @@ def test_unknown_table_keeps_blank_maps(table_factory):
     _nf, others, _tol = apply_config(cfg, a, fields, [{"table": b, "maps": {}}], 0.0)
 
     assert others[0]["maps"] == {"订单号": None}
-
-
-def test_load_config_rejects_foreign_file(tmp_path):
-    path = tmp_path / "bad.json"
-    path.write_text(json.dumps({"hello": "world"}), encoding="utf-8")
-
-    import pytest
-
-    with pytest.raises(ValueError, match="格式不正确"):
-        load_config_file(str(path))

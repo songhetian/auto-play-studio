@@ -9,6 +9,7 @@ import os
 import tempfile
 
 from fastapi import APIRouter, File, HTTPException, UploadFile
+from pydantic import BaseModel
 
 from . import config_io, service
 
@@ -213,23 +214,76 @@ def download_path(iid: str):
     return {"path": out}
 
 
+class PlanSaveBody(BaseModel):
+    name: str
+
+
+class PlanApplyBody(BaseModel):
+    planId: str
+
+
+def _current_tables(cmp_cfg: dict):
+    """把实例里已上传的表读出来，交给 config_io 做匹配/回填。"""
+    primary = service.load_table(cmp_cfg["primaryFile"])
+    others = [
+        {"table": service.load_table(i["path"]), "maps": cmp_cfg.get("maps", {}).get(name, {})}
+        for name, i in cmp_cfg.get("tables", {}).items()
+    ]
+    return primary, others
+
+
 @router.post("/instances/{iid}/compare/plan")
-def save_plan(iid: str):
-    """把当前方案存成 json，下次同结构文件可一键复用。"""
-    from .. import db
+def save_plan(iid: str, body: PlanSaveBody):
+    """把当前的字段角色、列映射、容差存成方案。
+
+    存进**全局方案库**（engine/plans.py）而不是实例目录：实例一删方案就没了，
+    而且以前那个 `uploads/<iid>/对比方案.json` 存完从来没人读 —— 等于没有这个功能。
+    """
+    from .. import db, plans
 
     cfg = cfg_of(iid)
     cmp_cfg = cfg["cmp"]
     if not cmp_cfg.get("primaryFile"):
         raise HTTPException(400, "请先上传 A 表（主表）")
 
-    primary = service.load_table(cmp_cfg["primaryFile"])
-    others = [
-        {"table": service.load_table(i["path"]), "maps": cmp_cfg.get("maps", {}).get(name, {})}
-        for name, i in cmp_cfg.get("tables", {}).items()
-    ]
-    d = os.path.join(UPLOAD_DIR, iid)
-    os.makedirs(d, exist_ok=True)
-    path = os.path.join(d, "对比方案.json")
-    config_io.save_config_file(path, primary, cmp_cfg.get("primaryFields", []), others, cmp_cfg.get("tolerance", 0.0))
-    return {"path": path}
+    primary, others = _current_tables(cmp_cfg)
+    snapshot = config_io.dump_config(
+        primary, cmp_cfg.get("primaryFields", []), others, cmp_cfg.get("tolerance", 0.0)
+    )
+    # 包一层 cmp.plan：方案与实例配置同构，将来「新建实例套用方案」才不会把字段塞错地方
+    pid = plans.create_plan("cmp", body.name, {"cmp": {"plan": snapshot}})
+    db.log(iid, f"方案已保存：{body.name}")
+    return {"id": pid, "name": body.name}
+
+
+@router.post("/instances/{iid}/compare/plan/apply")
+def apply_plan(iid: str, body: PlanApplyBody):
+    """把方案里的字段角色、列映射、容差套回当前实例。
+
+    按【主表名】匹配（config_io.apply_config）：换了一张主表还硬套，
+    容差这类业务口径就会张冠李戴，所以这时整套方案都不生效。
+    """
+    from .. import db, plans
+
+    cfg = cfg_of(iid)
+    found = plans.get_plan(body.planId)
+    if not found:
+        raise HTTPException(404, "方案不存在")
+    snapshot = (found["config"].get("cmp") or {}).get("plan")
+    if not snapshot:
+        raise HTTPException(400, "这个方案不是 Excel 对比的方案")
+
+    cmp_cfg = cfg["cmp"]
+    if not cmp_cfg.get("primaryFile"):
+        raise HTTPException(400, "请先上传 A 表（主表）")
+
+    primary, others = _current_tables(cmp_cfg)
+    fields, new_others, tolerance = config_io.apply_config(
+        snapshot, primary, cmp_cfg.get("primaryFields", []), others, cmp_cfg.get("tolerance", 0.0)
+    )
+    cmp_cfg["primaryFields"] = fields
+    cmp_cfg["maps"] = {o["table"]["name"]: o["maps"] for o in new_others}
+    cmp_cfg["tolerance"] = tolerance
+    db.save_config(iid, cfg)
+    db.log(iid, f"已载入方案：{found['name']}")
+    return {"ok": True, "name": found["name"], "tolerance": tolerance}
