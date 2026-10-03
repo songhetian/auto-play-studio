@@ -1,0 +1,164 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ─────────────────────────────────────────────────────────────
+   设计令牌
+
+   主体系是 shadcn/ui 的语义命名（HSL 通道，便于 Tailwind 透明度修饰符）：
+     background / foreground / card / popover / primary / secondary
+     muted / accent / destructive / border / input / ring / radius
+
+   第二层是兼容别名（原 Arco 命名的 gray-* / brand-*），RGB 通道。
+   两套指向同一批色值，深浅主题各自整套翻转，组件层只认名字不认数值。
+   ───────────────────────────────────────────────────────────── */
+:root {
+  /* shadcn/ui 语义令牌（浅色） */
+  --background: 220 20% 98%;
+  --foreground: 216 17% 14%;
+  --card: 0 0% 100%;
+  --card-foreground: 216 17% 14%;
+  --popover: 0 0% 100%;
+  --popover-foreground: 216 17% 14%;
+  --primary: 222 100% 54%;
+  --primary-foreground: 0 0% 100%;
+  --secondary: 220 15% 96%;
+  --secondary-foreground: 218 14% 26%;
+  --muted: 220 15% 96%;
+  --muted-foreground: 218 10% 50%;
+  --accent: 220 15% 95%;
+  --accent-foreground: 218 14% 22%;
+  --destructive: 0 84% 60%;
+  --destructive-foreground: 0 0% 100%;
+  --border: 228 14% 91%;
+  --input: 228 14% 88%;
+  --ring: 222 100% 54%;
+  --radius: 0.5rem;
+  --ok: 134 100% 35%;
+  --warn: 29 100% 50%;
+
+  /* 兼容别名（原 Arco 色阶） */
+  --c-surf: 255 255 255;
+  --c-hover: 247 248 250;
+  --c-brand-1: 232 243 255;
+  --c-brand-2: 190 218 255;
+  --c-brand-5: 64 128 255;
+  --c-brand-6: 22 93 255;
+  --c-brand-7: 14 66 210;
+  --c-gray-1: 247 248 250;
+  --c-gray-2: 242 243 245;
+  --c-gray-3: 229 230 235;
+  --c-gray-4: 201 205 212;
+  --c-gray-5: 169 174 184;
+  --c-gray-6: 134 144 156;
+  --c-gray-7: 107 119 133;
+  --c-gray-8: 78 89 105;
+  --c-gray-9: 39 46 59;
+  --c-gray-10: 29 33 41;
+
+  --log-bg: 29 33 41;
+  --log-fg: 201 205 212;
+  --log-dim: 134 144 156;
+
+  color-scheme: light;
+}
+
+[data-theme='dark'] {
+  --background: 240 7% 11%;
+  --foreground: 240 18% 95%;
+  --card: 240 6% 15%;
+  --card-foreground: 240 18% 95%;
+  --popover: 240 7% 14%;
+  --popover-foreground: 240 18% 95%;
+  --primary: 222 100% 65%;
+  --primary-foreground: 0 0% 100%;
+  --secondary: 240 6% 19%;
+  --secondary-foreground: 240 10% 88%;
+  --muted: 240 6% 18%;
+  --muted-foreground: 240 8% 64%;
+  --accent: 240 6% 21%;
+  --accent-foreground: 240 12% 92%;
+  --destructive: 0 72% 62%;
+  --destructive-foreground: 0 0% 100%;
+  --border: 240 6% 23%;
+  --input: 240 6% 25%;
+  --ring: 222 100% 65%;
+  --ok: 140 55% 51%;
+  --warn: 35 95% 60%;
+
+  --c-surf: 35 35 40;
+  --c-hover: 45 45 52;
+  --c-brand-1: 24 45 82;
+  --c-brand-2: 32 62 112;
+  --c-brand-5: 76 136 255;
+  --c-brand-6: 74 128 255;
+  --c-brand-7: 138 176 255;
+  --c-gray-1: 26 26 30;
+  --c-gray-2: 42 42 48;
+  --c-gray-3: 52 52 60;
+  --c-gray-4: 68 68 78;
+  --c-gray-5: 108 108 118;
+  --c-gray-6: 142 142 154;
+  --c-gray-7: 168 168 180;
+  --c-gray-8: 200 200 212;
+  --c-gray-9: 16 16 19;
+  --c-gray-10: 240 240 246;
+
+  --log-bg: 12 12 15;
+  --log-fg: 190 190 202;
+  --log-dim: 120 120 132;
+
+  color-scheme: dark;
+}
+
+@layer base {
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground font-sans text-[14px];
+    -webkit-font-smoothing: antialiased;
+  }
+  /* 字重整体压一档：桌面工具里满屏 semibold 会显得吵 */
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6 {
+    @apply font-medium;
+  }
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-thumb {
+    @apply bg-border rounded-lg border-2 border-solid border-transparent bg-clip-content;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background-color: hsl(var(--muted-foreground) / 0.45);
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  /* 主题切换时的短暂过渡，避免整屏硬闪；只在切换瞬间挂 .theme-anim */
+  html.theme-anim,
+  html.theme-anim *,
+  html.theme-anim *::before,
+  html.theme-anim *::after {
+    transition: background-color 0.18s ease, border-color 0.18s ease, color 0.18s ease !important;
+  }
+}
+
+@layer components {
+  /* 运行日志：两套主题下都保持「终端」观感，不能靠色阶翻转 */
+  .logbox {
+    background: rgb(var(--log-bg));
+    color: rgb(var(--log-fg));
+  }
+}

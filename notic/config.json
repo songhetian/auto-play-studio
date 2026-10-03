@@ -1,0 +1,31 @@
+{
+  "general": {
+    "run_monitoring": true,
+    "poll_interval_ms": 500
+  },
+  "alert": {
+    "popup_enabled": true,
+    "popup_timeout_ms": 10000,
+    "play_sound": true,
+    "sound_file": "C:/Users/Song/Desktop/8640691144879323.mp3",
+    "default_text": "出现目标图片 请查看",
+    "text_repeat": 1,
+    "repeat_while_visible": true
+  },
+  "zones": [
+    {
+      "id": "zfb61b941",
+      "name": "zfb61b941",
+      "enabled": true,
+      "scope": "region",
+      "rect": [
+        1194,
+        44,
+        280,
+        521
+      ],
+      "reference_image": "E:\\tools\\notic\\zones\\zfb61b941_import.png",
+      "hit_threshold": 0.75
+    }
+  ]
+}

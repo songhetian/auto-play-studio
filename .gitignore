@@ -1,0 +1,37 @@
+node_modules/
+dist/
+dist-electron/
+dist-engine/
+build-engine/
+# electron-builder 产物目录（release / release-app / release-dist 等）
+release*/
+.vitest-tmp/
+.tmp-*/
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.db
+*.db-wal
+*.db-shm
+.DS_Store
+*.log
+.env
+.env.local
+
+# 测试缓存
+.pytest_cache/
+
+# 移植来源的参考仓库：know（全文检索）与 compare-excel（多表对比）的算法
+# 已整体移植进 python/engine/kb 与 python/engine/compare，本地留作备查即可。
+# 注意 notic 不是参考件而是**运行时依赖**：engine/monitor.py 把仓库根 notic 加进 sys.path，
+# 直接 import 它的 OpenCV 模板匹配与声音模块，build:engine 也 --paths notic。
+# 但 notic/zones 是 74 张历史截图，与本项目无关。
+know/
+compare-excel/
+notic/zones/
+
+# 项目记忆与验收产物不进仓库；.scratch 只保留规范与工单真源
+.workbuddy/
+.scratch/*
+!.scratch/cs-toolkit/

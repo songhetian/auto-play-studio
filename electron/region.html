@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <title>框选区域</title>
+    <style>
+      /* 全屏透明遮罩：用 box-shadow 撑出「选区之外压暗」的效果，一个元素搞定 */
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+        background: transparent;
+        overflow: hidden;
+        cursor: crosshair;
+        user-select: none;
+        font-family: -apple-system, 'Segoe UI', 'Microsoft YaHei', sans-serif;
+      }
+      #sel {
+        position: fixed;
+        display: none;
+        border: 1px solid #165dff;
+        box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.32);
+      }
+      #size {
+        position: fixed;
+        display: none;
+        padding: 2px 6px;
+        border-radius: 3px;
+        background: #165dff;
+        color: #fff;
+        font-size: 12px;
+        font-variant-numeric: tabular-nums;
+        white-space: nowrap;
+      }
+      #hint {
+        position: fixed;
+        left: 50%;
+        top: 28px;
+        transform: translateX(-50%);
+        padding: 6px 14px;
+        border-radius: 4px;
+        background: rgba(29, 33, 41, 0.85);
+        color: #fff;
+        font-size: 13px;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="hint">拖拽框选要采集的区域 · Esc 取消</div>
+    <div id="sel"></div>
+    <div id="size"></div>
+    <script>
+      const sel = document.getElementById('sel')
+      const size = document.getElementById('size')
+      const hint = document.getElementById('hint')
+      let start = null
+
+      const norm = (x1, y1, x2, y2) => ({
+        x: Math.min(x1, x2),
+        y: Math.min(y1, y2),
+        width: Math.abs(x2 - x1),
+        height: Math.abs(y2 - y1),
+      })
+
+      function paint(rect) {
+        sel.style.display = 'block'
+        sel.style.left = rect.x + 'px'
+        sel.style.top = rect.y + 'px'
+        sel.style.width = rect.width + 'px'
+        sel.style.height = rect.height + 'px'
+
+        size.style.display = 'block'
+        size.textContent = rect.width + ' × ' + rect.height
+        // 尺寸提示贴在选区下方，超出屏幕就翻到上方
+        const below = rect.y + rect.height + 8
+        size.style.top = (below > innerHeight - 24 ? rect.y - 24 : below) + 'px'
+        size.style.left = Math.min(rect.x, innerWidth - 72) + 'px'
+      }
+
+      addEventListener('mousedown', (e) => {
+        start = { x: e.clientX, y: e.clientY }
+        hint.style.display = 'none'
+        paint(norm(start.x, start.y, start.x, start.y))
+      })
+
+      addEventListener('mousemove', (e) => {
+        if (!start) return
+        paint(norm(start.x, start.y, e.clientX, e.clientY))
+      })
+
+      addEventListener('mouseup', (e) => {
+        if (!start) return
+        const rect = norm(start.x, start.y, e.clientX, e.clientY)
+        start = null
+        // 手抖点一下（小于 4px）当误触，继续等用户框
+        if (rect.width < 4 || rect.height < 4) {
+          sel.style.display = 'none'
+          size.style.display = 'none'
+          hint.style.display = 'block'
+          return
+        }
+        window.region.done(rect)
+      })
+
+      addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') window.region.done(null)
+      })
+    </script>
+  </body>
+</html>

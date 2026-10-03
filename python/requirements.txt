@@ -1,0 +1,19 @@
+# 自动化引擎依赖（打包时用 PyInstaller 打为 sidecar）
+# 注意：starlette >= 0.37 才兼容 httpx 0.28（旧版 TestClient 会报 unexpected keyword 'app'）
+fastapi>=0.115.0
+starlette>=0.41.0
+uvicorn==0.30.5
+python-multipart==0.0.9   # Excel 上传
+openpyxl==3.1.5          # Excel 读写与状态回写
+#
+# ── RPA 真实驱动（按需安装；不装引擎也能起，只在执行指令时报可读的缺依赖提示）──
+# pyautogui==0.9.54        # 键盘鼠标
+# pyperclip==1.9.0         # 中文输入走剪贴板（pyautogui 直接输入中文会丢字）
+# pillow==10.4.0           # 截图
+# opencv-python==4.10.0.84 # 模板匹配找图
+# numpy==2.1.0             # opencv 依赖
+#
+# ── 物流 Provider ② 网页自动化 ──
+# playwright==1.46.0
+#
+# 测试：pytest>=8（httpx 供 TestClient 使用）

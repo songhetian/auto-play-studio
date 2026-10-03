@@ -1,0 +1,1241 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AutoPlay v4 — 控制台 + 独立实例（多开）</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+tailwind.config={theme:{extend:{fontFamily:{sans:["-apple-system","BlinkMacSystemFont","Segoe UI","PingFang SC","Microsoft YaHei","Helvetica Neue","Arial","sans-serif"],mono:["Cascadia Code","Consolas","Menlo","monospace"]}}}}
+</script>
+<style>
+:root{
+  --p1:#E8F3FF;--p5:#4080FF;--p6:#165DFF;--p7:#0E42D2;
+  --g1:#F7F8FA;--g2:#F2F3F5;--g3:#E5E6EB;--g4:#C9CDD4;--g5:#A9AEB8;--g6:#86909C;--g7:#6B7785;--g8:#4E5969;--g9:#272E3B;--g10:#1D2129;
+  --ok:#00B42A;--okbg:#E8FFEA;--warn:#FF7D00;--err:#F53F3F;--errbg:#FFECE8;
+}
+body{background:var(--g1);color:var(--g10);font-size:14px;-webkit-font-smoothing:antialiased}
+::-webkit-scrollbar{width:8px;height:8px}
+::-webkit-scrollbar-thumb{background:var(--g3);border-radius:8px}
+::-webkit-scrollbar-track{background:transparent}
+.app{border-radius:8px;overflow:hidden;border:1px solid var(--g3);box-shadow:0 8px 32px rgb(29 33 41/.12)}
+.btn{display:inline-flex;align-items:center;gap:5px;height:32px;padding:0 12px;font-size:13px;border-radius:4px;border:1px solid transparent;background:transparent;color:var(--g8);cursor:pointer;transition:all .1s;white-space:nowrap}
+.btn:hover{background:var(--g2)}
+.btn:active{transform:scale(.985)}
+.btn-pri{background:var(--p6);color:#fff}.btn-pri:hover{background:var(--p5)}
+.btn-pri:disabled{background:var(--p2,#BEDAFF);opacity:.6;cursor:not-allowed}
+.btn-out{background:#fff;border-color:var(--g3)}.btn-out:hover{border-color:var(--g4);color:var(--p6)}
+.btn-txt{color:var(--p6);padding:0 8px}.btn-txt:hover{background:var(--p1)}
+.btn-dan{color:var(--err)}.btn-dan:hover{background:var(--errbg)}
+.btn-sm{height:28px;padding:0 10px;font-size:12.5px}
+.btn:disabled{opacity:.5;cursor:not-allowed}
+.ipt{height:32px;width:100%;border:1px solid var(--g3);border-radius:4px;background:#fff;padding:0 10px;font-size:13px;outline:none}
+.ipt:focus{border-color:var(--p6);box-shadow:0 0 0 2px rgb(22 93 255/.12)}
+select.ipt{-webkit-appearance:none;appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2386909C' stroke-width='2.5'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 8px center;padding-right:26px;cursor:pointer}
+.lbl{font-size:12.5px;color:var(--g7);display:block;margin-bottom:6px}
+.sw{position:relative;display:inline-block;width:34px;height:19px;flex:none;cursor:pointer}
+.sw input{display:none}
+.sw .tk{position:absolute;inset:0;border-radius:999px;background:var(--g3);transition:background .15s}
+.sw .kb{position:absolute;top:2px;left:2px;width:15px;height:15px;border-radius:999px;background:#fff;box-shadow:0 1px 3px rgb(0 0 0/.2);transition:transform .15s}
+.sw input:checked~.tk{background:var(--p6)}
+.sw input:checked~.kb{transform:translateX(15px)}
+.tag{display:inline-flex;align-items:center;gap:4px;height:22px;padding:0 8px;border-radius:4px;font-size:12px}
+.t-ok{background:var(--okbg);color:#009A29}.t-err{background:var(--errbg);color:#CB2634}.t-neu{background:var(--g2);color:var(--g7)}.t-pri{background:var(--p1);color:var(--p7)}.t-warn{background:#FFF7E8;color:#D25F00}
+.card{background:#fff;border:1px solid var(--g3);border-radius:6px}
+.card-h{display:flex;align-items:center;justify-content:space-between;height:46px;padding:0 16px;border-bottom:1px solid var(--g3)}
+.card-h h4{font-size:14px;font-weight:600}
+.rail{width:196px;flex:none;background:#fff;border-right:1px solid var(--g3);display:flex;flex-direction:column}
+.rail-t{font-size:12px;color:var(--g6);padding:16px 16px 6px}
+.rail-i{display:flex;align-items:center;gap:9px;height:36px;margin:2px 8px;padding:0 10px;border-radius:4px;font-size:13.5px;color:var(--g8);cursor:pointer;transition:all .1s}
+.rail-i:hover{background:var(--g2)}
+.rail-i.on{background:var(--p1);color:var(--p6);font-weight:500}
+.rail-i .c{margin-left:auto;font-size:12px;color:var(--g6)}
+.rail-i.on .c{color:var(--p5)}
+.tbl{width:100%;font-size:13px;border-collapse:separate;border-spacing:0}
+.tbl th{background:var(--g1);color:var(--g7);font-weight:500;font-size:12.5px;text-align:left;padding:9px 12px;border-bottom:1px solid var(--g3);white-space:nowrap}
+.tbl td{padding:9px 12px;border-bottom:1px solid var(--g2);color:var(--g8)}
+.tbl tbody tr:hover td{background:var(--g1)}
+.tool{border:1px solid var(--g3);border-radius:6px;background:#fff;padding:16px;cursor:pointer;transition:all .12s;position:relative}
+.tool:hover{border-color:var(--p5);box-shadow:0 2px 10px rgb(29 33 41/.06)}
+.tool.dis{opacity:.55;cursor:not-allowed}
+.tool.dis:hover{border-color:var(--g3);box-shadow:none}
+/* 独立实例窗口 */
+.desk{background:#EFF1F4;border-radius:6px;padding:18px;min-height:560px;position:relative}
+.win{width:352px;background:#fff;border:1px solid var(--g3);border-radius:8px;box-shadow:0 6px 18px rgb(29 33 41/.12);overflow:hidden;display:flex;flex-direction:column}
+.win.run{border-color:var(--p5);box-shadow:0 8px 22px rgb(22 93 255/.18)}
+.win-t{height:34px;display:flex;align-items:center;gap:7px;padding:0 10px;background:var(--g1);border-bottom:1px solid var(--g3)}
+.win-t .nm{font-size:12.5px;font-weight:500;color:var(--g10);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.win-t .id{font-size:11px;color:var(--g6);font-family:Consolas,monospace}
+.win-b{padding:12px;display:flex;flex-direction:column;gap:10px}
+.mini{height:1.5px;border-radius:2px;background:var(--g2);overflow:hidden}
+.mini>div{height:100%;background:var(--p6);transition:width .4s}
+.mlog{height:96px;overflow-y:auto;background:#1D2129;border-radius:4px;padding:8px;font-family:Consolas,monospace;font-size:11px;line-height:1.8;color:#C9CDD4}
+/* 拖拽上传 */
+.dz{border:1.5px dashed var(--g3);border-radius:6px;background:var(--g1);padding:22px;text-align:center;cursor:pointer;transition:all .12s}
+.dz:hover{border-color:var(--p5);background:var(--p1)}
+.dz.over{border-color:var(--p6);background:var(--p1);box-shadow:0 0 0 3px rgb(22 93 255/.1)}
+.dz .t{font-size:13.5px;color:var(--g8)}
+.dz .s{font-size:12px;color:var(--g6);margin-top:4px}
+/* 指令库列表 */
+.lib{display:flex;align-items:center;gap:8px;height:32px;padding:0 10px;border-radius:4px;font-size:13px;color:var(--g8);cursor:pointer}
+.lib:hover{background:var(--p1);color:var(--p6)}
+.lib .d{width:7px;height:7px;border-radius:50%;flex:none}
+.lib .k{margin-left:auto;font-size:11.5px;color:var(--g5)}
+/* 画布拖拽 */
+.node[draggable=true]{cursor:grab}
+.node.drag{opacity:.4}
+.node.over{border-color:var(--p6);box-shadow:0 -2px 0 var(--p6) inset}
+.kv{display:flex;justify-content:space-between;font-size:12.5px;color:var(--g7)}
+.kv b{color:var(--g10);font-weight:500}
+/* 实例列表：大屏表格 / 小屏卡片 */
+.tblwrap{overflow-x:auto}
+.tblwrap .tbl{min-width:1024px}
+.tbl td.nw,.tbl th.nw{white-space:nowrap}
+.op{flex-wrap:nowrap;white-space:nowrap}
+.inst-table{display:none}
+.inst-cards{display:block}
+@media (min-width:1180px){ .inst-table{display:block} .inst-cards{display:none} }
+.icard{border:1px solid var(--g3);border-radius:6px;background:#fff;padding:12px;margin-bottom:10px}
+.icard .row{display:flex;justify-content:space-between;gap:12px;font-size:12.5px;color:var(--g7);padding:3px 0}
+.icard .row b{color:var(--g10);font-weight:500;text-align:right;word-break:break-all}
+.toast-host{position:fixed;right:20px;bottom:44px;z-index:90}
+.toast{display:flex;align-items:center;gap:8px;background:#fff;border:1px solid var(--g3);box-shadow:0 4px 16px rgb(29 33 41/.12);border-radius:6px;padding:10px 14px;font-size:13px;margin-top:8px;animation:tin .18s ease-out}
+@keyframes tin{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+@keyframes plive{0%{box-shadow:0 0 0 0 rgb(0 180 42/.45)}70%{box-shadow:0 0 0 6px rgb(0 180 42/0)}100%{box-shadow:0 0 0 0 rgb(0 180 42/0)}}
+.live{animation:plive 1.6s infinite}
+@keyframes palarm{0%{box-shadow:0 0 0 0 rgb(245 63 63/.5)}70%{box-shadow:0 0 0 8px rgb(245 63 63/0)}100%{box-shadow:0 0 0 0 rgb(245 63 63/0)}}
+.alive{animation:palarm 1s infinite}
+.fade{animation:fi .18s ease-out}
+@keyframes fi{from{opacity:0;transform:translateY(3px)}to{opacity:1;transform:none}}
+.modal-bg{position:fixed;inset:0;background:rgb(29 33 41/.45);z-index:80}
+</style>
+</head>
+<body>
+<div class="app h-screen flex flex-col">
+
+  <!-- 标题栏 -->
+  <div class="flex-none h-8 flex items-center px-3" style="background:#fff;border-bottom:1px solid var(--g3)">
+    <div class="flex items-center gap-2"><div class="w-4 h-4 rounded" style="background:var(--p6)"></div><span class="text-[12.5px] font-medium">AutoPlay 控制台</span><span class="tag t-neu" style="height:18px">v4.0</span></div>
+    <div class="mx-auto text-[12px]" style="color:var(--g6)">多实例并行 · 每个工具独立运行</div>
+    <div class="ml-auto flex items-center">
+      <button class="w-9 h-6 flex items-center justify-center rounded hover:bg-[var(--g2)]" style="color:var(--g6)"><svg width="10" height="10" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><line x1="5" y1="12" x2="19" y2="12"/></svg></button>
+      <button class="w-9 h-6 flex items-center justify-center rounded hover:bg-[var(--g2)]" style="color:var(--g6)"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="4" width="16" height="16"/></svg></button>
+      <button class="w-9 h-6 flex items-center justify-center rounded hover:bg-[var(--errbg)] hover:text-[var(--err)]" style="color:var(--g6)"><svg width="10" height="10" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><line x1="6" y1="6" x2="18" y2="18"/><line x1="18" y1="6" x2="6" y2="18"/></svg></button>
+    </div>
+  </div>
+
+  <!-- 头部 -->
+  <div class="flex-none flex items-center gap-3 px-4 h-[52px]" style="background:#fff;border-bottom:1px solid var(--g3)">
+    <span class="text-[15px] font-medium">工具箱</span>
+    <span class="text-[12.5px]" style="color:var(--g6)">共 3 个工具 · 运行中 <b id="hdrRun" style="color:var(--p6)">2</b> 个实例</span>
+    <div class="flex-1"></div>
+    <button class="btn btn-out btn-sm" onclick="toast('已最小化所有实例窗口到托盘')">全部最小化</button>
+    <button class="btn btn-out btn-sm" onclick="toast('已暂停所有运行中的实例')">全部暂停</button>
+    <button class="btn btn-pri btn-sm" onclick="openNew()">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+      新建实例
+    </button>
+  </div>
+
+  <div class="flex-1 flex min-h-0">
+    <!-- 侧边 -->
+    <aside class="rail">
+      <div class="rail-t">控制台</div>
+      <div class="rail-i on" data-page="tools"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/></svg>工具箱</div>
+      <div class="rail-i" data-page="inst"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>实例管理 <span class="c" id="instCount">3</span></div>
+      <div class="rail-i" data-page="desk"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="2" y="4" width="14" height="10" rx="1"/><rect x="9" y="8" width="13" height="12" rx="1"/></svg>实例桌面</div>
+      <div class="rail-i" data-page="cfg"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>实例配置</div>
+      <div class="rail-t">共享资源</div>
+      <div class="rail-i" data-page="images"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="m21 15-5-5L5 21"/></svg>图像库 <span class="c">6</span></div>
+      <div class="rail-i" data-page="engine"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h.01a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51h.01a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v.01a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>引擎与设置</div>
+      <div class="mt-auto p-3">
+        <div class="rounded p-2.5" style="background:var(--g1);border:1px solid var(--g3)">
+          <div class="text-[11px]" style="color:var(--g6)">自动化引擎</div>
+          <div class="flex items-center gap-1.5 mt-1 text-[12.5px]"><span class="w-1.5 h-1.5 rounded-full live" style="background:var(--ok)"></span>已连接 · 3 worker</div>
+        </div>
+      </div>
+    </aside>
+
+    <main class="flex-1 min-w-0 overflow-y-auto">
+
+      <!-- 工具箱 -->
+      <section id="page-tools" class="p-5">
+        <div class="mb-3 flex items-center justify-between">
+          <div><h3 class="text-[15px] font-medium">工具</h3><p class="text-[12.5px] mt-0.5" style="color:var(--g6)">每个工具可同时打开多个实例，实例之间完全独立、并行运行</p></div>
+          <input class="ipt" style="width:220px" placeholder="搜索工具…">
+        </div>
+        <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+          <div class="tool" onclick="openNew('rpa')">
+            <div class="flex items-start gap-3">
+              <div class="w-10 h-10 rounded flex items-center justify-center flex-none" style="background:var(--p6)">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
+              </div>
+              <div class="min-w-0 flex-1">
+                <div class="flex items-center gap-2"><span class="text-[14.5px] font-medium">自动化脚本助手</span><span class="tag t-pri">可多开</span></div>
+                <div class="text-[12.5px] mt-1" style="color:var(--g7)">绑定一个目标窗口，按 Excel 数据逐行执行脚本指令</div>
+                <div class="flex items-center gap-3 mt-2.5 text-[12px]" style="color:var(--g6)">
+                  <span>运行中 <b id="t1run" style="color:var(--p6)">1</b> · 空闲 <b>1</b></span>
+                  <span>累计执行 1,284 行</span>
+                </div>
+              </div>
+            </div>
+            <div class="flex gap-2 mt-3 pt-3" style="border-top:1px solid var(--g2)">
+              <button class="btn btn-pri btn-sm flex-1" onclick="event.stopPropagation();openNew('rpa')">新建实例</button>
+              <button class="btn btn-out btn-sm" onclick="event.stopPropagation();toast('打开历史配置：最近 3 个方案')">历史配置</button>
+            </div>
+          </div>
+
+          <div class="tool" onclick="openNew('monitor')">
+            <div class="flex items-start gap-3">
+              <div class="w-10 h-10 rounded flex items-center justify-center flex-none" style="background:#00B42A">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
+              </div>
+              <div class="min-w-0 flex-1">
+                <div class="flex items-center gap-2"><span class="text-[14.5px] font-medium">桌面图片监控</span><span class="tag t-pri">可多开</span></div>
+                <div class="text-[12.5px] mt-1" style="color:var(--g7)">监测屏幕指定区域，图片出现即报警（声音 / 通知 / 停脚本）</div>
+                <div class="flex items-center gap-3 mt-2.5 text-[12px]" style="color:var(--g6)">
+                  <span>布防中 <b id="t2run" style="color:var(--ok)">1</b></span><span>今日命中 3 次</span>
+                </div>
+              </div>
+            </div>
+            <div class="flex gap-2 mt-3 pt-3" style="border-top:1px solid var(--g2)">
+              <button class="btn btn-pri btn-sm flex-1" onclick="event.stopPropagation();openNew('monitor')">新建实例</button>
+              <button class="btn btn-out btn-sm" onclick="event.stopPropagation();toast('打开监控规则模板')">规则模板</button>
+            </div>
+          </div>
+
+          <div class="tool" onclick="openNew('logi')">
+            <div class="flex items-start gap-3">
+              <div class="w-10 h-10 rounded flex items-center justify-center flex-none" style="background:#FF7D00">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round"><rect x="1" y="3" width="15" height="13"/><polygon points="16 8 20 8 23 11 23 16 16 16 16 8"/><circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/></svg>
+              </div>
+              <div class="min-w-0 flex-1">
+                <div class="flex items-center gap-2"><span class="text-[14.5px] font-medium">物流信息查询</span><span class="tag t-pri">可多开</span></div>
+                <div class="text-[12.5px] mt-1" style="color:var(--g7)">传入 Excel → 自动检测列 → 选物流单号列 → 查询并写入新文件</div>
+                <div class="flex items-center gap-3 mt-2.5 text-[12px]" style="color:var(--g6)">
+                  <span>运行中 <b id="t3run" style="color:var(--p6)">0</b></span><span>累计查询 862 单</span>
+                </div>
+              </div>
+            </div>
+            <div class="flex gap-2 mt-3 pt-3" style="border-top:1px solid var(--g2)">
+              <button class="btn btn-pri btn-sm flex-1" onclick="event.stopPropagation();openNew('logi')">新建实例</button>
+              <button class="btn btn-out btn-sm" onclick="event.stopPropagation();toast('支持拖拽上传 Excel')">拖拽上传</button>
+            </div>
+          </div>
+
+          <div class="tool" onclick="toast('图像库是共享资源，所有实例共用同一份图像资产')">
+            <div class="flex items-start gap-3">
+              <div class="w-10 h-10 rounded flex items-center justify-center flex-none" style="background:#722ED1">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="m21 15-5-5L5 21"/></svg>
+              </div>
+              <div class="min-w-0 flex-1">
+                <div class="flex items-center gap-2"><span class="text-[14.5px] font-medium">图像库</span><span class="tag t-neu">共享服务</span></div>
+                <div class="text-[12.5px] mt-1" style="color:var(--g7)">截图 / 导入 / 改阈值，改动自动同步到所有引用它的实例</div>
+                <div class="flex items-center gap-3 mt-2.5 text-[12px]" style="color:var(--g6)"><span>6 张图像 · 5 处引用</span></div>
+              </div>
+            </div>
+            <div class="flex gap-2 mt-3 pt-3" style="border-top:1px solid var(--g2)">
+              <button class="btn btn-out btn-sm flex-1" onclick="event.stopPropagation();go('images')">打开图像库</button>
+              <button class="btn btn-out btn-sm" onclick="event.stopPropagation();toast('框选屏幕区域截图')">立即截图</button>
+            </div>
+          </div>
+
+          <div class="tool dis">
+            <div class="flex items-start gap-3">
+              <div class="w-10 h-10 rounded flex items-center justify-center flex-none" style="background:var(--g5)">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+              </div>
+              <div class="min-w-0 flex-1">
+                <div class="flex items-center gap-2"><span class="text-[14.5px] font-medium">Excel 批处理</span><span class="tag t-neu">规划中</span></div>
+                <div class="text-[12.5px] mt-1" style="color:var(--g7)">批量合并、清洗、拆分表格（后续工具同样以独立实例接入）</div>
+              </div>
+            </div>
+          </div>
+
+          <div class="tool" style="border-style:dashed" onclick="toast('扩展位：新工具注册后即可在工具箱出现并多开')">
+            <div class="flex flex-col items-center justify-center py-5" style="color:var(--g6)">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+              <span class="text-[13px] mt-2">接入新工具</span>
+              <span class="text-[12px] mt-1" style="color:var(--g5)">注册一行即可出现在工具箱</span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- 实例管理 -->
+      <section id="page-inst" class="p-5 hidden">
+        <div class="card">
+          <div class="card-h"><h4>运行中的实例</h4>
+            <div class="flex items-center gap-2">
+              <span class="text-[12px]" style="color:var(--g6)">每个实例独立进程 / 独立执行上下文</span>
+              <button class="btn btn-out btn-sm" onclick="toast('已停止全部实例')">全部停止</button>
+            </div>
+          </div>
+          <!-- 大屏：表格（横向滚动，不压缩列） -->
+          <div class="inst-table tblwrap">
+            <table class="tbl">
+              <thead><tr>
+                <th class="nw" style="width:200px">实例</th>
+                <th class="nw" style="width:130px">工具</th>
+                <th class="nw" style="width:180px">绑定目标</th>
+                <th class="nw" style="width:92px">状态</th>
+                <th class="nw" style="width:170px">进度</th>
+                <th class="nw" style="width:96px">运行时长</th>
+                <th class="nw" style="width:210px">操作</th>
+              </tr></thead>
+              <tbody id="instBody"></tbody>
+            </table>
+          </div>
+          <!-- 小屏：卡片列表 -->
+          <div class="inst-cards p-3" id="instCards"></div>
+          <div class="px-4 py-3 text-[12.5px] flex items-center gap-4 flex-wrap" style="border-top:1px solid var(--g3);color:var(--g7)">
+            <span>运行中 <b id="sRun" style="color:var(--p6)">1</b></span>
+            <span>空闲 <b id="sIdle">1</b></span>
+            <span>布防中 <b id="sArm" style="color:var(--ok)">1</b></span>
+            <div class="flex-1"></div>
+            <span>实例关闭前会自动保存各自的配置与执行结果</span>
+          </div>
+        </div>
+      </section>
+
+      <!-- 实例桌面（多开演示） -->
+      <section id="page-desk" class="p-5 hidden">
+        <div class="mb-3 flex items-center justify-between">
+          <div><h3 class="text-[15px] font-medium">实例桌面</h3><p class="text-[12.5px] mt-0.5" style="color:var(--g6)">每个窗口都是独立的软件实例：各自的窗口绑定、方案、运行控制与日志，互不干扰</p></div>
+          <button class="btn btn-pri btn-sm" onclick="openNew()">+ 新建实例</button>
+        </div>
+        <div class="desk flex flex-wrap gap-4" id="deskBox"></div>
+      </section>
+
+      <!-- 实例配置（每个实例独立） -->
+      <section id="page-cfg" class="p-5 hidden">
+        <div class="flex items-center gap-3 mb-4 flex-wrap">
+          <span class="text-[15px] font-medium">实例配置</span>
+          <select class="ipt" style="width:240px" id="cfgSel" onchange="switchCfg(this.value)"></select>
+          <span id="cfgSt"></span>
+          <span class="text-[12px]" style="color:var(--g6)">配置只对当前实例生效，与其它实例完全隔离</span>
+          <div class="flex-1"></div>
+          <div class="flex gap-2" id="cfgTabs">
+            <button class="btn btn-out btn-sm" id="tabData" onclick="cfgTab('data')">数据与配置</button>
+            <button class="btn btn-out btn-sm" id="tabFlow" onclick="cfgTab('flow')">流程编排</button>
+            <button class="btn btn-pri btn-sm" onclick="toast('配置已保存到当前实例')">保存配置</button>
+            <button class="btn btn-out btn-sm" onclick="openRun(curInst)">前往运行详情 →</button>
+          </div>
+        </div>
+        <div id="cfgBody"></div>
+      </section>
+
+      <!-- 运行详情（从实例桌面进入） -->
+      <section id="page-run" class="p-5 hidden">
+        <div class="flex items-center gap-3 mb-4 flex-wrap">
+          <button class="btn btn-out btn-sm" onclick="go('desk')">← 实例桌面</button>
+          <span id="runTitle" class="text-[15px] font-medium">—</span>
+          <span id="runSt"></span>
+          <span class="text-[12px]" style="color:var(--g6)">运行与监控在此进行，配置请前往「实例配置」</span>
+          <div class="flex-1"></div>
+          <button class="btn btn-out btn-sm" onclick="openCfg(curInst)">配置</button>
+          <button class="btn btn-pri btn-sm" id="runBtnMain" onclick="toggle(curInst)">开始执行</button>
+          <button class="btn btn-out btn-sm" onclick="stopInst(curInst)">停止</button>
+        </div>
+        <div id="runPageBody"></div>
+      </section>
+
+      <!-- 图像库（共享） -->
+      <section id="page-images" class="p-5 hidden">
+        <div class="card">
+          <div class="card-h"><h4>图像库（共享资产）</h4>
+            <div class="flex items-center gap-2"><input class="ipt" style="width:200px" placeholder="搜索图像…"><button class="btn btn-pri btn-sm" onclick="toast('框选屏幕区域截图')">立即截图</button></div>
+          </div>
+          <div class="p-4">
+            <div class="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-6 gap-3">
+              <div class="rounded border p-2 cursor-pointer hover:border-[var(--p5)]" style="border-color:var(--g3)" onclick="toast('打开图像编辑：重新截图 / 换图 / 改阈值')"><div class="aspect-[8/3] rounded flex items-center justify-center" style="background:var(--g1)"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="var(--g4)" stroke-width="1.4"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="m21 15-5-5L5 21"/></svg></div><div class="font-mono text-[12px] mt-1.5">send_btn.png</div><div class="text-[11.5px]" style="color:var(--g6)">0.88 · 3 处引用</div></div>
+              <div class="rounded border p-2 cursor-pointer hover:border-[var(--p5)]" style="border-color:var(--g3)" onclick="toast('打开图像编辑')"><div class="aspect-[8/3] rounded flex items-center justify-center" style="background:var(--g1)"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="var(--g4)" stroke-width="1.4"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="m21 15-5-5L5 21"/></svg></div><div class="font-mono text-[12px] mt-1.5">confirm.png</div><div class="text-[11.5px]" style="color:var(--g6)">0.85 · 1 处引用</div></div>
+              <div class="rounded border p-2 cursor-pointer hover:border-[var(--p5)]" style="border-color:var(--g3)" onclick="toast('打开图像编辑')"><div class="aspect-[8/3] rounded flex items-center justify-center" style="background:var(--g1)"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="var(--g4)" stroke-width="1.4"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="m21 15-5-5L5 21"/></svg></div><div class="font-mono text-[12px] mt-1.5">error_tip.png</div><div class="text-[11.5px]" style="color:var(--g6)">0.78 · 2 处引用</div></div>
+              <div class="rounded border p-2 cursor-pointer hover:border-[var(--p5)]" style="border-color:var(--g3)" onclick="toast('打开图像编辑')"><div class="aspect-[8/3] rounded flex items-center justify-center" style="background:var(--g1)"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="var(--g4)" stroke-width="1.4"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="m21 15-5-5L5 21"/></svg></div><div class="font-mono text-[12px] mt-1.5">login_ok.png</div><div class="text-[11.5px]" style="color:var(--g6)">0.85 · 1 处引用</div></div>
+              <div class="rounded border p-2 cursor-pointer hover:border-[var(--p5)]" style="border-color:var(--g3)" onclick="toast('打开图像编辑')"><div class="aspect-[8/3] rounded flex items-center justify-center" style="background:var(--g1)"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="var(--g4)" stroke-width="1.4"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="m21 15-5-5L5 21"/></svg></div><div class="font-mono text-[12px] mt-1.5">dialog_ok.png</div><div class="text-[11.5px]" style="color:var(--g6)">0.90 · 1 处引用</div></div>
+              <div class="rounded border p-2 cursor-pointer hover:border-[var(--p5)]" style="border-color:var(--g3)" onclick="toast('打开图像编辑')"><div class="aspect-[8/3] rounded flex items-center justify-center" style="background:var(--g1)"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="var(--g4)" stroke-width="1.4"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="m21 15-5-5L5 21"/></svg></div><div class="font-mono text-[12px] mt-1.5">cart_icon.png</div><div class="text-[11.5px]" style="color:var(--g6)">0.80 · 1 处引用</div></div>
+            </div>
+            <div class="mt-4 p-3 rounded text-[12.5px]" style="background:var(--g1);border:1px solid var(--g3);color:var(--g7)">
+              图像库是共享服务，不属于任何单个实例；修改后自动同步到所有引用它的实例与监控规则
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- 引擎与设置 -->
+      <section id="page-engine" class="p-5 hidden max-w-3xl space-y-4">
+        <div class="card">
+          <div class="card-h"><h4>执行引擎</h4><span class="tag t-ok">已连接</span></div>
+          <div class="p-4 space-y-3 text-[13px]">
+            <div class="kv"><span>引擎地址</span><b class="font-mono">127.0.0.1:8731</b></div>
+            <div class="kv"><span>Worker 分配</span><b>每个实例独占 1 个 worker 进程</b></div>
+            <div class="kv"><span>并行上限</span><b>8 个实例（可在设置调整）</b></div>
+            <div class="kv"><span>崩溃策略</span><b>实例异常退出不影响其它实例，自动保留现场</b></div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-h"><h4>全局设置</h4></div>
+          <div class="p-4 space-y-3 text-[13px]">
+            <label class="flex items-center justify-between"><span>启动控制台时恢复上次的实例</span><span class="sw"><input type="checkbox" checked><span class="tk"></span><span class="kb"></span></span></label>
+            <label class="flex items-center justify-between"><span>关闭控制台时最小化到托盘</span><span class="sw"><input type="checkbox" checked><span class="tk"></span><span class="kb"></span></span></label>
+            <label class="flex items-center justify-between"><span>实例窗口独立置顶记忆</span><span class="sw"><input type="checkbox"><span class="tk"></span><span class="kb"></span></span></label>
+            <label class="flex items-center justify-between"><span>全局热键 F9 / F10（作用于当前焦点实例）</span><span class="sw"><input type="checkbox" checked><span class="tk"></span><span class="kb"></span></span></label>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <!-- 状态栏 -->
+  <div class="flex-none h-7 flex items-center px-4 gap-4 text-[12px]" style="background:#fff;border-top:1px solid var(--g3);color:var(--g6)">
+    <span class="flex items-center gap-1.5"><span class="w-1.5 h-1.5 rounded-full live" style="background:var(--ok)"></span>引擎已连接</span>
+    <span>实例 <b id="sbTotal">3</b> 个</span>
+    <span>运行中 <b id="sbRun">1</b></span>
+    <span>布防中 <b id="sbArm">1</b></span>
+    <div class="flex-1"></div>
+    <span>Worker 3 / 8</span>
+    <span>F9 暂停 · F10 停止（作用于焦点实例）</span>
+  </div>
+</div>
+
+<!-- 新建实例弹窗 -->
+<div id="newModal" class="hidden fixed inset-0 z-[85] flex items-center justify-center">
+  <div class="modal-bg" onclick="closeNew()"></div>
+  <div class="relative bg-white rounded-lg w-[560px] max-w-[92vw]" style="box-shadow:0 8px 32px rgb(29 33 41/.2)">
+    <div class="flex items-center justify-between h-12 px-4" style="border-bottom:1px solid var(--g3)">
+      <span class="text-[15px] font-medium">新建实例</span>
+      <button class="w-7 h-7 flex items-center justify-center rounded hover:bg-[var(--g2)]" onclick="closeNew()"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+    </div>
+    <div class="p-4 space-y-4">
+      <div><span class="lbl">选择工具</span>
+        <div class="grid grid-cols-3 gap-3">
+          <div class="rounded border p-3 cursor-pointer" id="pickRpa" style="border-color:var(--p6);background:var(--p1)" onclick="pickTool('rpa')">
+            <div class="text-[13.5px] font-medium">自动化脚本助手</div><div class="text-[12px] mt-0.5" style="color:var(--g7)">绑定窗口 + Excel 数据逐行执行</div></div>
+          <div class="rounded border p-3 cursor-pointer" id="pickMon" style="border-color:var(--g3)" onclick="pickTool('monitor')">
+            <div class="text-[13.5px] font-medium">桌面图片监控</div><div class="text-[12px] mt-0.5" style="color:var(--g7)">图片出现即报警</div></div>
+          <div class="rounded border p-3 cursor-pointer" id="pickLogi" style="border-color:var(--g3)" onclick="pickTool('logi')">
+            <div class="text-[13.5px] font-medium">物流信息查询</div><div class="text-[12px] mt-0.5" style="color:var(--g7)">按单号查物流写入新文件</div></div>
+        </div>
+      </div>
+      <div><span class="lbl">实例名称</span><input class="ipt" id="newName" value="客户管理系统"></div>
+      <div><span class="lbl">绑定目标窗口 / 区域</span>
+        <select class="ipt" id="newWin">
+          <option>客户管理系统 v3.2 — CRM.exe · PID 12844</option>
+          <option>企业微信 — WXWork.exe · PID 9012</option>
+          <option>订单管理平台 — chrome.exe · PID 3321</option>
+          <option>全屏（监控用）</option>
+        </select>
+        <div class="text-[12px] mt-1.5" style="color:var(--g6)">实例启动后可在自己的窗口内随时重新绑定，与其它实例互不影响</div>
+      </div>
+      <div id="newExcel"><span class="lbl">数据源（每个实例独立）</span><input class="ipt" value="D:\data\客户名单_10月.xlsx"></div>
+    </div>
+    <div class="flex justify-end gap-2 h-14 items-center px-4" style="border-top:1px solid var(--g3)">
+      <button class="btn btn-out" onclick="closeNew()">取消</button>
+      <button class="btn btn-pri" onclick="createInst()">打开实例</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast-host" id="toastHost"></div>
+
+<script>
+function toast(m){
+  var h=document.getElementById("toastHost"),e=document.createElement("div");
+  e.className="toast";e.innerHTML='<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#00B42A" stroke-width="2.4" stroke-linecap="round"><polyline points="20 6 9 17 4 12"/></svg><span>'+m+'</span>';
+  h.appendChild(e);setTimeout(function(){e.style.opacity="0";e.style.transition="opacity .3s"},2400);setTimeout(function(){e.remove()},2800);
+}
+function now(){var d=new Date(),p=function(n){return (n<10?"0":"")+n};return p(d.getHours())+":"+p(d.getMinutes())+":"+p(d.getSeconds())}
+
+/* ═══ 实例数据：每个实例是独立个体 ═══ */
+var INSTS=[
+  {id:"A1",tool:"rpa",toolName:"自动化脚本助手",name:"客户管理系统",win:"客户管理系统 v3.2",excel:"客户名单_10月.xlsx",st:"run",done:23,total:58,sec:412,log:[],color:"#165DFF"},
+  {id:"A2",tool:"rpa",toolName:"自动化脚本助手",name:"企业微信",win:"企业微信",excel:"老客回访.xlsx",st:"idle",done:0,total:42,sec:0,log:[],color:"#165DFF"},
+  {id:"M1",tool:"monitor",toolName:"桌面图片监控",name:"异常弹窗监控",win:"全屏",excel:"—",st:"armed",done:0,total:0,sec:9935,log:[],color:"#00B42A"},
+  {id:"L1",tool:"logi",toolName:"物流信息查询",name:"10月订单物流",win:"无需窗口 · Excel 处理",excel:"订单_10月.xlsx",st:"idle",done:0,total:0,sec:0,log:[],color:"#FF7D00",
+   cfg:{file:"订单_10月.xlsx",cols:["订单编号","客户名称","物流单号","收货地址","下单时间","备注"],colWaybill:"物流单号",writeCols:["物流公司","物流状态","签收时间","最新轨迹"],rows:null}}
+];
+/* 每个实例独立持有的配置（与其它实例互不影响） */
+function defCfg(it){
+  return {
+    excel: it && it.excel && it.excel!=="—" ? it.excel : "D:\\data\\客户名单_10月.xlsx",
+    colName:"客户名称", colMsg:"话术模板", colStatus:"自动创建「执行状态」列",
+    unified:true, unifiedText:"您好，本店新品已上架，前 50 名下单享 8 折优惠~",
+    from:1, to:(it&&it.total)||58, retry:2, onFail:"标记并继续",
+    skipOk:true, writeWhy:true, backup:true, sel:-1,
+    cmds:[
+      {t:"激活窗口",p:"窗口："+(it?it.win:"待绑定"),type:"win",on:true},
+      {t:"输入文本",p:"内容：{客户名称}",type:"text",on:true},
+      {t:"按键",p:"组合：Enter",type:"key",on:true},
+      {t:"等待图像",p:"图像：confirm.png · 阈值 0.85 · 超时 5s",type:"img",on:true},
+      {t:"点击图像",p:"图像：send_btn.png · 阈值 0.88 · 偏移 (0,0)",type:"img",on:true},
+      {t:"标记结果",p:"成功→「成功」· 失败→「失败 + 原因」",type:"flow",on:true}
+    ],
+    rows:[
+      {r:1,n:"张三",s:"ok",t:"2.4s",w:""},
+      {r:2,n:"李四",s:"err",t:"5.1s",w:"超时未匹配"},
+      {r:3,n:"王五",s:"wait",t:"—",w:""},
+      {r:4,n:"赵六",s:"skip",t:"—",w:"上次已成功"},
+      {r:5,n:"陈七",s:"wait",t:"—",w:""},
+      {r:6,n:"周八",s:"wait",t:"—",w:""}
+    ]
+  };
+}
+INSTS.forEach(function(it){
+  if(!it.cfg) it.cfg = (it.tool==="logi" ? defLogiCfg() : defCfg(it));
+  if(it.tool==="logi"){
+    if(!it.cfg.rows) it.cfg.rows=DEMO_LOGI_ROWS();
+    if(!it.cfg.provider) it.cfg=Object.assign(defLogiCfg(), it.cfg);
+  }
+});
+var timers={},seq=3;
+function stText(s){return {run:"运行中",idle:"空闲",pause:"已暂停",armed:"布防中",err:"异常"}[s]}
+function stTag(s){
+  if(s==="run")return '<span class="tag t-pri">运行中</span>';
+  if(s==="armed")return '<span class="tag t-ok">布防中</span>';
+  if(s==="pause")return '<span class="tag t-warn">已暂停</span>';
+  if(s==="err")return '<span class="tag t-err">异常</span>';
+  return '<span class="tag t-neu">空闲</span>';
+}
+function fmtSec(s){var h=Math.floor(s/3600),m=Math.floor(s%3600/60),x=s%60;var p=function(n){return (n<10?"0":"")+n};return (h?h+":":"")+p(m)+":"+p(x)}
+
+function renderCards(){
+  var box=document.getElementById("instCards"); if(!box) return;
+  box.innerHTML="";
+  INSTS.forEach(function(it){
+    var pct=it.total?Math.round(it.done/it.total*100):0;
+    var d=document.createElement("div");
+    d.className="icard";
+    d.innerHTML=
+      '<div class="flex items-center gap-2.5 mb-2">'+
+        '<div class="w-8 h-8 rounded flex items-center justify-center flex-none" style="background:'+it.color+'">'+
+          '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round">'+(it.tool==="rpa"?'<polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/>':'<path d="M22 12h-4l-3 9L9 3l-3 9H2"/>')+'</svg></div>'+
+        '<div class="min-w-0 flex-1"><div class="text-[13.5px] font-medium truncate">'+it.name+'</div>'+
+        '<div class="text-[11.5px] font-mono" style="color:var(--g6)">'+it.id+' · '+it.toolName+'</div></div>'+
+        stTag(it.st)+
+      '</div>'+
+      '<div class="row"><span>绑定目标</span><b>'+it.win+'</b></div>'+
+      (it.tool==="rpa"?'<div class="row"><span>数据源</span><b>'+it.excel+'</b></div>':'<div class="row"><span>监测图</span><b>error_tip.png ×2</b></div>')+
+      '<div class="row"><span>'+(it.total?'进度':'命中')+'</span><b>'+(it.total?'<span class="font-mono">'+it.done+' / '+it.total+' 行</span>':'今日 3 次')+'</b></div>'+
+      '<div class="row"><span>运行时长</span><b class="font-mono">'+fmtSec(it.sec)+'</b></div>'+
+      (it.total?'<div class="mini mt-2"><div style="width:'+pct+'%"></div></div>':'')+
+      '<div class="flex items-center gap-1.5 mt-2.5 pt-2.5" style="border-top:1px solid var(--g2);flex-wrap:wrap">'+
+        '<button class="btn btn-out btn-sm" data-a="open">配置</button>'+
+        '<button class="btn btn-out btn-sm" data-a="top">置顶</button>'+
+        '<button class="btn btn-out btn-sm" data-a="clone">复制</button>'+
+        '<button class="btn btn-out btn-sm btn-dan" data-a="close">停止</button>'+
+      '</div>';
+    d.onclick=function(e){
+      var a=e.target.dataset.a; if(!a) return;
+      if(a==="open"){openCfg(it.id)}
+      if(a==="top")toast('实例 '+it.id+' 窗口已置顶');
+      if(a==="clone"){seq++;INSTS.push({id:(it.tool==="rpa"?"A":"M")+seq,tool:it.tool,toolName:it.toolName,name:it.name+" 副本",win:it.win,excel:it.excel,st:"idle",done:0,total:it.total,sec:0,log:[],color:it.color,cfg:JSON.parse(JSON.stringify(it.cfg))});renderAll();toast('已复制实例：配置相同、执行上下文独立')}
+      if(a==="close"){it.st="idle";stopT(it);renderAll();toast('实例 '+it.id+' 已停止')}
+    };
+    box.appendChild(d);
+  });
+}
+function renderInst(){
+  var tb=document.getElementById("instBody");tb.innerHTML="";
+  INSTS.forEach(function(it){
+    var tr=document.createElement("tr");
+    var pct=it.total?Math.round(it.done/it.total*100):0;
+    tr.innerHTML=
+      '<td class="nw"><div class="flex items-center gap-2.5"><div class="w-7 h-7 rounded flex items-center justify-center flex-none" style="background:'+it.color+'">'+
+        '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round">'+(it.tool==="rpa"?'<polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/>':'<path d="M22 12h-4l-3 9L9 3l-3 9H2"/>')+'</svg></div>'+
+        '<div class="min-w-0"><div class="text-[13px] truncate" style="color:var(--g10);max-width:150px">'+it.name+'</div><div class="text-[11.5px] font-mono" style="color:var(--g6)">'+it.id+'</div></div></div></td>'+
+      '<td class="nw">'+it.toolName+'</td>'+
+      '<td class="nw text-[12.5px]"><div class="truncate" style="max-width:170px">'+it.win+'</div></td>'+
+      '<td class="nw">'+stTag(it.st)+'</td>'+
+      '<td class="nw" style="min-width:150px">'+(it.total?'<div class="flex items-center gap-2"><div class="mini flex-1"><div style="width:'+pct+'%"></div></div><span class="font-mono text-[12px]">'+it.done+'/'+it.total+'</span></div>':'<span style="color:var(--g6)">—</span>')+'</td>'+
+      '<td class="nw font-mono text-[12px]">'+fmtSec(it.sec)+'</td>'+
+      '<td class="nw"><div class="flex items-center op"><button class="btn btn-txt btn-sm" data-a="open">配置</button><button class="btn btn-txt btn-sm" data-a="top">置顶</button><button class="btn btn-txt btn-sm" data-a="clone">复制</button><button class="btn btn-txt btn-sm btn-dan" data-a="close">停止</button></div></td>';
+    tr.onclick=function(e){
+      var a=e.target.dataset.a;if(!a)return;
+      if(a==="open"){openCfg(it.id)}
+      if(a==="top")toast('实例 '+it.id+' 窗口已置顶');
+      if(a==="clone"){seq++;INSTS.push({id:(it.tool==="rpa"?"A":"M")+seq,tool:it.tool,toolName:it.toolName,name:it.name+" 副本",win:it.win,excel:it.excel,st:"idle",done:0,total:it.total,sec:0,log:[],color:it.color,cfg:JSON.parse(JSON.stringify(it.cfg))});renderAll();toast('已复制实例：配置相同、执行上下文独立')}
+      if(a==="close"){it.st="idle";stopT(it);renderAll();toast('实例 '+it.id+' 已停止')}
+    };
+    tb.appendChild(tr);
+  });
+  renderCards();
+  var c=function(s){return INSTS.filter(function(x){return x.st===s}).length};
+  document.getElementById("sRun").textContent=c("run");
+  document.getElementById("sIdle").textContent=c("idle")+c("pause");
+  document.getElementById("sArm").textContent=c("armed");
+  document.getElementById("instCount").textContent=INSTS.length;
+  document.getElementById("hdrRun").textContent=c("run")+c("armed");
+  document.getElementById("sbTotal").textContent=INSTS.length;
+  document.getElementById("sbRun").textContent=c("run");
+  document.getElementById("sbArm").textContent=c("armed");
+  document.getElementById("t1run").textContent=c("run");
+  document.getElementById("t2run").textContent=c("armed");
+  var t3=document.getElementById("t3run");
+  if(t3) t3.textContent=INSTS.filter(function(x){return x.tool==="logi"&&x.st==="run"}).length;
+}
+
+function renderDesk(){
+  var box=document.getElementById("deskBox");box.innerHTML="";
+  INSTS.forEach(function(it){
+    var pct=it.total?Math.round(it.done/it.total*100):0;
+    var tot2=it.tool==="logi"?(it.cfg.rows?it.cfg.rows.length:0):0;
+    var don2=it.tool==="logi"?(it.cfg.rows?it.cfg.rows.filter(function(r){return r.st!=="待查询"}).length:0):0;
+    var pct2=tot2?Math.round(don2/tot2*100):0;
+    var w=document.createElement("div");
+    w.className="win fade"+(it.st==="run"||it.st==="armed"?" run":"");
+    w.innerHTML=
+      '<div class="win-t" style="cursor:pointer" onclick="openRun(\''+it.id+'\')">'+
+        '<span class="w-2 h-2 rounded-full flex-none '+(it.st==="run"?'live':it.st==="armed"?'alive':'')+'" style="background:'+(it.st==="run"?"var(--ok)":it.st==="armed"?"var(--err)":"var(--g4)")+'"></span>'+
+        '<span class="nm">'+it.name+'</span><span class="id">'+it.id+'</span>'+
+        '<div class="ml-auto flex items-center">'+
+          '<button class="w-6 h-6 flex items-center justify-center rounded hover:bg-[var(--g2)]" style="color:var(--g6)" onclick="event.stopPropagation();toast(\'实例 '+it.id+' 已最小化到托盘\')"><svg width="9" height="9" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3"><line x1="5" y1="12" x2="19" y2="12"/></svg></button>'+
+          '<button class="w-6 h-6 flex items-center justify-center rounded hover:bg-[var(--errbg)] hover:text-[var(--err)]" style="color:var(--g6)" onclick="event.stopPropagation();closeInst(\''+it.id+'\')"><svg width="9" height="9" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3" fill="none"><line x1="6" y1="6" x2="18" y2="18"/><line x1="18" y1="6" x2="6" y2="18"/></svg></button>'+
+        '</div>'+
+      '</div>'+
+      '<div class="win-b">'+
+        '<div class="flex items-center justify-between"><span class="text-[12.5px]" style="color:var(--g7)">'+it.toolName+'</span>'+stTag(it.st)+'</div>'+
+        '<div class="rounded p-2.5" style="background:var(--g1);border:1px solid var(--g3)">'+
+          '<div class="kv"><span>绑定目标</span><b>'+it.win+'</b></div>'+
+          (it.tool==="rpa"?'<div class="kv mt-1"><span>数据源</span><b class="font-mono" style="font-size:12px">'+it.excel+'</b></div>':'<div class="kv mt-1"><span>监测图</span><b class="font-mono" style="font-size:12px">error_tip.png ×2</b></div>')+
+          '<div class="kv mt-1"><span>运行时长</span><b class="font-mono" id="ws-'+it.id+'">'+fmtSec(it.sec)+'</b></div>'+
+        '</div>'+
+        (it.tool==="logi"
+          ? '<div><div class="flex justify-between text-[12px] mb-1" style="color:var(--g7)"><span>查询进度</span><span class="font-mono" id="wt-'+it.id+'">'+(it.cfg.rows?it.cfg.rows.filter(function(r){return r.st!=="待查询"}).length:0)+' / '+(it.cfg.rows?it.cfg.rows.length:0)+' 条</span></div><div class="mini"><div id="wp-'+it.id+'" style="width:'+pct2+'%"></div></div></div>'
+          : it.total?'<div><div class="flex justify-between text-[12px] mb-1" style="color:var(--g7)"><span>进度</span><span class="font-mono" id="wt-'+it.id+'">'+it.done+' / '+it.total+' 行</span></div><div class="mini"><div id="wp-'+it.id+'" style="width:'+pct+'%"></div></div></div>':
+          '<div class="text-[12px]" style="color:var(--g7)">已布防 · 轮询 1000ms · 今日命中 3 次</div>')+
+        '<div class="mlog" id="log-'+it.id+'"></div>'+
+        '<div class="flex gap-2">'+
+          (it.tool!=="monitor"
+            ? '<button class="btn btn-pri btn-sm flex-1" id="b-'+it.id+'" onclick="event.stopPropagation();toggle(\''+it.id+'\')">'+(it.st==="run"?"暂停":(it.tool==="logi"?"开始查询":"开始执行"))+'</button><button class="btn btn-out btn-sm" onclick="event.stopPropagation();openRun(\''+it.id+'\')">运行详情</button>'
+            : '<button class="btn btn-pri btn-sm flex-1" onclick="toggle(\''+it.id+'\')">'+(it.st==="armed"?"撤防":"布防")+'</button><button class="btn btn-out btn-sm" onclick="alarm(\''+it.id+'\')">测试报警</button>')+
+        '</div>'+
+      '</div>';
+    box.appendChild(w);
+    paintLog(it);
+  });
+}
+function paintLog(it){
+  var box=document.getElementById("log-"+it.id);if(!box)return;
+  box.innerHTML=it.log.slice(-30).map(function(l){return '<div style="color:'+l.c+'">'+l.t+'</div>'}).join("")||'<div style="color:var(--g6)">等待操作…</div>';
+  box.scrollTop=box.scrollHeight;
+}
+function pushLog(it,t,c){it.log.push({t:"["+now()+"] "+t,c:c||"#C9CDD4"});paintLog(it)}
+
+function stopT(it){if(timers[it.id]){clearInterval(timers[it.id]);delete timers[it.id]}}
+function toggle(id){
+  var it=INSTS.find(function(x){return x.id===id});
+  if(it.tool==="logi"){
+    if(it.st==="run"){ stopT(it); it.st="pause"; pushLog(it,"已暂停","#FF9A2E"); renderAll(); renderRunPage(); return; }
+    if(!it.cfg.rows.length){ toast("请先在配置页上传 Excel 并选择物流单号列"); return; }
+    var isExcel=(it.cfg.provider==="excel");
+    it.st="run";
+    pushLog(it, isExcel
+      ? "开始本地合并 · 对照表「"+it.cfg.refFile+"」按「"+it.cfg.colWaybill+"」匹配"
+      : "开始网页查询 · 流程「"+it.cfg.flow+"」· 单号列「"+it.cfg.colWaybill+"」","#C9CDD4");
+    stopT(it);
+    timers[it.id]=setInterval(function(){
+      var pd=it.cfg.rows.filter(function(r){return r.st==="待查询"});
+      if(!pd.length){
+        stopT(it); it.st="idle";
+        pushLog(it,"查询完成，已写入新文件 "+outName(it.cfg),"#00B42A");
+        renderAll(); renderRunPage(); return;
+      }
+      var r=pd[0], co=company(r.no), st=["已签收","运输中","已揽收","无轨迹"][Math.floor(Math.random()*4)];
+      r.co=co; r.st=st;
+      r.time= st==="已签收" ? "10-0"+(1+Math.floor(Math.random()*2))+" 1"+Math.floor(Math.random()*9)+":2"+Math.floor(Math.random()*9) : "";
+      r.trace= st==="无轨迹" ? "—" : "【深圳市】快件"+st;
+      it.sec+=1; it.done=it.cfg.rows.filter(function(x){return x.st!=="待查询"}).length;
+      pushLog(it,(isExcel?"合并 ":"查询 ")+r.no+" · "+co+" · "+r.st, r.st==="无轨迹"?"#FB7185":"#7BE188");
+      renderInst(); updWin(it); renderRunPage();
+    }, isExcel?260:900);
+    renderAll(); renderRunPage(); return;
+  }
+  if(it.tool==="rpa"){
+    if(it.st==="run"){stopT(it);it.st="pause";pushLog(it,"已暂停","#FF9A2E");renderAll();return}
+    it.st="run";pushLog(it,"开始执行 · 窗口已激活","#C9CDD4");
+    stopT(it);
+    timers[it.id]=setInterval(function(){
+      if(it.done>=it.total){stopT(it);it.st="idle";pushLog(it,"全部完成 ✅","#00B42A");renderAll();return}
+      it.done++;it.sec+=1;
+      var bad=Math.random()<0.15;
+      var pr=it.cfg.rows.filter(function(r){return r.s==="wait"})[0];
+      if(pr){pr.s=bad?"err":"ok";pr.t=(2+Math.random()*3).toFixed(1)+"s";pr.w=bad?"超时未匹配":""}
+      pushLog(it,"行 "+it.done+"/"+it.total+" · "+(bad?"失败：超时未匹配 → 写入「失败」":"发送成功 → 写入「成功」"),bad?"#FB7185":"#7BE188");
+      renderInst(); updWin(it);
+      if(curInst===it.id){
+        if(!document.getElementById("page-run").classList.contains("hidden")) renderRunPage(); else renderCfg();
+      }
+    },1000);
+  }else{
+    if(it.st==="armed"){stopT(it);it.st="idle";pushLog(it,"已撤防","#86909C")}
+    else{it.st="armed";pushLog(it,"已布防 · 规则 ×2 · 全屏 · 1000ms","#86909C");
+      timers[it.id]=setInterval(function(){
+        if(Math.random()<0.12){it.sec+=1;pushLog(it,"命中 error_tip.png · 0.9"+Math.floor(Math.random()*9)+" · 声音 + 通知","#7BE188")}
+        it.sec+=1;
+      },2000);}
+  }
+  renderAll();
+}
+/* 局部更新实例窗口，避免整页重绘打断交互 */
+function updWin(it){
+  var isLogi=(it.tool==="logi");
+  var tot=isLogi?(it.cfg.rows?it.cfg.rows.length:0):(it.total||0);
+  var don=isLogi?(it.cfg.rows?it.cfg.rows.filter(function(r){return r.st!=="待查询"}).length:0):it.done;
+  var pct=tot?Math.round(don/tot*100):0;
+  var wp=document.getElementById("wp-"+it.id), wt=document.getElementById("wt-"+it.id), ws=document.getElementById("ws-"+it.id);
+  if(wp) wp.style.width=pct+"%";
+  if(wt) wt.textContent=don+" / "+tot+(isLogi?" 条":" 行");
+  if(ws) ws.textContent=fmtSec(it.sec);
+}
+function alarm(id){var it=INSTS.find(function(x){return x.id===id});pushLog(it,"模拟命中 error_tip.png · 已触发声音报警","#7BE188");toast("实例 "+id+"：已触发报警（声音 + 系统通知）")}
+function closeInst(id){
+  var it=INSTS.find(function(x){return x.id===id});
+  if(it&&(it.st==="run"||it.st==="armed")&&!confirm("实例 "+id+" 正在运行，关闭会中断当前任务。确定关闭？")) return;
+  stopT(it);INSTS=INSTS.filter(function(x){return x.id!==id});
+  if(curInst===id) curInst=INSTS.length?INSTS[0].id:null;
+  renderAll();toast("实例 "+id+" 已关闭，配置与执行结果已保存")
+}
+function renderAll(){renderInst();renderDesk();if(curInst)renderCfgSel()}
+
+/* ═══ 实例配置页（每个实例独立） ═══ */
+var curInst="A1", cfgTabNow="data";
+function renderCfgSel(){
+  var s=document.getElementById("cfgSel"); if(!s) return;
+  s.innerHTML=INSTS.map(function(i){return '<option value="'+i.id+'"'+(i.id===curInst?" selected":"")+'>'+i.id+' · '+i.name+'（'+i.toolName+'）</option>'}).join("");
+}
+function switchCfg(id){curInst=id;renderCfgSel();renderCfg()}
+function openCfg(id){curInst=id;go("cfg");renderCfgSel();renderCfg()}
+function cfgTab(t){cfgTabNow=t;renderCfg()}
+function renderCfg(){
+  var it=INSTS.find(function(x){return x.id===curInst});
+  if(!it){document.getElementById("cfgBody").innerHTML='<div class="card p-8 text-center" style="color:var(--g6)">暂无实例，请先新建</div>';return}
+  var c=it.cfg, isLogi=(it.tool==="logi");
+  document.getElementById("cfgSt").innerHTML=stTag(it.st);
+  var tf=document.getElementById("tabFlow"); if(tf) tf.style.display=isLogi?"none":"";
+  if(cfgTabNow==="run") cfgTabNow="data";
+  ["data","flow"].forEach(function(t){
+    var b=document.getElementById("tab"+t.charAt(0).toUpperCase()+t.slice(1));
+    if(b) b.className="btn btn-sm "+(t===cfgTabNow?"btn-pri":"btn-out");
+  });
+  var box=document.getElementById("cfgBody");
+  if(isLogi){ renderLogiCfg(it,box); bindDz(); return; }
+  if(cfgTabNow==="data"){
+    var cnt=function(k){return c.rows.filter(function(x){return x.s===k}).length};
+    box.innerHTML=
+    '<div class="grid grid-cols-12 gap-4">'+
+      '<div class="col-span-12 xl:col-span-7 space-y-4">'+
+        '<div class="card"><div class="card-h"><h4>绑定窗口</h4><span class="tag t-ok">已绑定</span></div>'+
+          '<div class="p-4 space-y-3">'+
+            '<div class="flex gap-2"><select class="ipt flex-1" id="cfWin"><option>'+it.win+'</option><option>企业微信 — WXWork.exe · PID 9012</option><option>订单管理平台 — chrome.exe · PID 3321</option></select>'+
+            '<button class="btn btn-out" onclick="toast(\'已重新绑定：该实例独立生效\')">重新绑定</button></div>'+
+            '<div class="text-[12px]" style="color:var(--g6)">仅影响当前实例；其它实例的窗口绑定不受影响</div>'+
+            '<div class="flex flex-wrap gap-x-7 gap-y-2.5 pt-1 text-[13px]">'+
+              '<label class="flex items-center gap-2"><span class="sw"><input type="checkbox" checked><span class="tk"></span><span class="kb"></span></span>运行时置顶</label>'+
+              '<label class="flex items-center gap-2"><span class="sw"><input type="checkbox" checked><span class="tk"></span><span class="kb"></span></span>失焦自动激活</label>'+
+            '</div>'+
+          '</div></div>'+
+        '<div class="card"><div class="card-h"><h4>数据源与列映射</h4><span class="tag t-neu">每实例独立</span></div>'+
+          '<div class="p-4 space-y-3">'+
+            dzHtml("dzRpa","上传后自动识别列名与行数")+
+            '<div class="flex items-center gap-2 mt-2"><span class="text-[12px]" style="color:var(--g6)">当前文件：<b style="color:var(--g10)">'+c.excel+'</b></span><button class="btn btn-txt btn-sm" onclick="toast(\'已重新解析表头\')">重新解析</button></div>'+
+            '<div class="grid grid-cols-3 gap-3">'+
+              '<div><span class="lbl">客户名称列（搜索关键词）</span><select class="ipt"><option>'+c.colName+'</option><option>手机号</option><option>客户编号</option></select></div>'+
+              '<div><span class="lbl">消息内容列</span><select class="ipt"><option>'+c.colMsg+'</option><option>— 不使用 —</option></select></div>'+
+              '<div><span class="lbl">状态列</span><select class="ipt"><option>'+c.colStatus+'</option><option>执行状态</option><option>— 不写入 —</option></select></div>'+
+            '</div>'+
+            '<label class="flex items-center justify-between pt-1">'+
+              '<div><div class="text-[13.5px] font-medium">启用统一发送内容</div><div class="text-[12px] mt-0.5" style="color:var(--g6)">开启后忽略 Excel「消息内容列」</div></div>'+
+              '<span class="sw"><input type="checkbox" '+(c.unified?"checked":"")+'><span class="tk"></span><span class="kb"></span></span></label>'+
+            '<textarea class="ipt" style="min-height:76px">'+c.unifiedText+'</textarea>'+
+          '</div></div>'+
+        '<div class="card"><div class="card-h"><h4>执行策略</h4></div>'+
+          '<div class="p-4 space-y-3">'+
+            '<div class="grid grid-cols-4 gap-3">'+
+              '<div><span class="lbl">起始行</span><input class="ipt" value="'+c.from+'"></div>'+
+              '<div><span class="lbl">结束行</span><input class="ipt" value="'+c.to+'"></div>'+
+              '<div><span class="lbl">失败重试</span><input class="ipt" value="'+c.retry+'"></div>'+
+              '<div><span class="lbl">失败后</span><select class="ipt"><option>'+c.onFail+'</option><option>暂停等待</option></select></div>'+
+            '</div>'+
+            '<div class="flex flex-wrap gap-x-7 gap-y-2.5 pt-2 text-[13px]" style="border-top:1px solid var(--g2)">'+
+              '<label class="flex items-center gap-2"><span class="sw"><input type="checkbox" '+(c.skipOk?"checked":"")+'><span class="tk"></span><span class="kb"></span></span>跳过已「成功」的行</label>'+
+              '<label class="flex items-center gap-2"><span class="sw"><input type="checkbox" '+(c.writeWhy?"checked":"")+'><span class="tk"></span><span class="kb"></span></span>回写失败原因</label>'+
+              '<label class="flex items-center gap-2"><span class="sw"><input type="checkbox" '+(c.backup?"checked":"")+'><span class="tk"></span><span class="kb"></span></span>执行前备份 Excel</label>'+
+            '</div>'+
+          '</div></div>'+
+      '</div>'+
+      '<div class="col-span-12 xl:col-span-5">'+
+        '<div class="card"><div class="card-h"><h4>数据预览</h4><span class="text-[12px]" style="color:var(--g6)">结果实时回写 Excel</span></div>'+
+          '<table class="tbl"><thead><tr><th style="width:48px">行</th><th>客户名称</th><th style="width:90px">状态</th><th style="width:64px">耗时</th></tr></thead><tbody>'+
+          c.rows.map(function(x){return '<tr><td class="font-mono" style="font-size:12px">'+x.r+'</td><td>'+x.n+(x.w?'<div class="text-[11.5px]" style="color:var(--g6)">'+x.w+'</div>':'')+'</td><td>'+
+            (x.s==="ok"?'<span class="tag t-ok">成功</span>':x.s==="err"?'<span class="tag t-err">失败</span>':x.s==="skip"?'<span class="tag t-neu">已跳过</span>':'<span class="tag t-pri">待执行</span>')+
+            '</td><td class="font-mono" style="font-size:12px">'+x.t+'</td></tr>'}).join("")+
+          '</tbody></table>'+
+          '<div class="px-4 py-3 flex items-center gap-4 text-[12.5px] flex-wrap" style="border-top:1px solid var(--g3);color:var(--g7)">'+
+            '<span>成功 <b style="color:#009A29">'+cnt("ok")+'</b></span><span>失败 <b style="color:#CB2634">'+cnt("err")+'</b></span>'+
+            '<span>跳过 <b>'+cnt("skip")+'</b></span><span>待执行 <b style="color:var(--p6)">'+cnt("wait")+'</b></span>'+
+            '<div class="ml-auto flex gap-2"><button class="btn btn-out btn-sm" onclick="toast(\'重置状态列\')">重置状态</button><button class="btn btn-out btn-sm" onclick="toast(\'仅重跑失败行\')">重跑失败行</button></div>'+
+          '</div>'+
+        '</div>'+
+      '</div>'+
+    '</div>';
+    bindDz();
+  }else if(cfgTabNow==="flow"){
+    var COL={win:"#165DFF",text:"#0FC6C2",key:"#722ED1",mouse:"#FF7D00",img:"#00B42A",flow:"#86909C"};
+    var sel=c.sel;
+    box.innerHTML=
+    '<div class="grid grid-cols-12 gap-4">'+
+      '<div class="col-span-12 xl:col-span-3"><div class="card"><div class="card-h"><h4>指令库</h4></div>'+
+        '<div class="p-3 space-y-3 max-h-[460px] overflow-y-auto">'+
+        [["窗口",[["激活窗口","win"],["窗口置顶","win"],["关闭窗口","win"]]],
+         ["键盘",[["输入文本","text"],["粘贴文本","text"],["按键","key"]]],
+         ["鼠标",[["点击坐标","mouse"],["点击图像","img"],["偏移点击","img"]]],
+         ["图像判定",[["等待图像","img"],["有图跳过","img"],["尝试点击","img"]]],
+         ["流程控制",[["延时等待","flow"],["标记结果","flow"]]]].map(function(g){
+          return '<div style="margin-bottom:10px"><div class="lbl">'+g[0]+'</div>'+
+            g[1].map(function(i){return '<div class="lib" onclick="addCmd(\''+curInst+'\',\''+i[0]+'\',\''+i[1]+'\')"><span class="d" style="background:'+COL[i[1]]+'"></span>'+i[0]+'<span class="k">添加</span></div>'}).join("")+'</div>';
+        }).join("")+
+        '<button class="btn btn-pri w-full" onclick="toast(\'已套用推荐流程（仅当前实例）\')">套用推荐流程</button>'+
+        '</div></div></div>'+
+      '<div class="col-span-12 xl:col-span-5"><div class="card"><div class="card-h"><h4>指令序列</h4><span class="tag t-neu">'+c.cmds.length+' 条</span></div>'+
+        '<div class="p-3 space-y-2 max-h-[460px] overflow-y-auto">'+
+        c.cmds.map(function(cm,i){
+          return '<div class="node fade'+(i===sel?" on":"")+(cm.on?"":" off")+'" draggable="true" data-idx="'+i+'" ondragstart="dragStart(event,'+i+')" ondragover="dragOver(event,'+i+')" ondragleave="dragLeave(event)" ondrop="dropCmd(event,'+i+')" onclick="selCmd('+i+')" style="display:flex;align-items:flex-start;gap:10px;border:1px solid '+(i===sel?"var(--p6)":"var(--g3)")+';border-radius:6px;padding:10px 12px;cursor:pointer;'+(i===sel?"box-shadow:0 0 0 2px rgb(22 93 255/.12)":"")+'">'+
+            '<span class="w-5 h-5 rounded-full flex items-center justify-center text-[11px] font-mono flex-none mt-0.5" style="background:var(--g2);color:var(--g7)">'+(i+1)+'</span>'+
+            '<div class="w-7 h-7 rounded flex items-center justify-center flex-none" style="background:'+COL[cm.type]+'"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4z"/></svg></div>'+
+            '<div class="min-w-0 flex-1"><div class="text-[13.5px] font-medium">'+cm.t+'</div><div class="text-[12px] truncate mt-0.5" style="color:var(--g6)">'+cm.p+'</div></div></div>';
+        }).join("")+
+        '</div></div></div>'+
+      '<div class="col-span-12 xl:col-span-4"><div class="card"><div class="card-h"><h4>属性</h4><span class="tag t-neu">'+(sel>=0?c.cmds[sel].t:"未选中")+'</span></div>'+
+        '<div class="p-4">'+(sel<0?'<div class="text-[13px] text-center py-12" style="color:var(--g5)">选择左侧指令以编辑属性</div>':
+          (c.cmds[sel].type==="img"?
+            '<div class="lbl">目标图像</div><div class="flex items-center gap-3 p-2.5 rounded" style="border:1px solid var(--g3)"><div class="w-16 h-10 rounded flex items-center justify-center" style="background:var(--g1);border:1px solid var(--g3)"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--g4)" stroke-width="1.4"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="m21 15-5-5L5 21"/></svg></div><div><div class="font-mono text-[12.5px]">send_btn.png</div><div class="text-[11.5px]" style="color:var(--g6)">120×40 · 2 处引用</div></div></div>'+
+            '<div class="grid grid-cols-3 gap-2 mt-2"><button class="btn btn-out btn-sm" onclick="toast(\'重新截图\')">重新截图</button><button class="btn btn-out btn-sm" onclick="toast(\'从库替换\')">从库替换</button><button class="btn btn-out btn-sm" onclick="toast(\'匹配测试 0.93\')">测试</button></div>'+
+            '<div class="mt-4"><span class="lbl">匹配阈值 <b class="font-mono" id="cfThr">0.88</b></span><input type="range" min="0.5" max="1" step="0.01" value="0.88" class="w-full" oninput="document.getElementById(\'cfThr\').textContent=(+this.value).toFixed(2)"></div>'+
+            '<div class="grid grid-cols-2 gap-2 mt-3"><div><span class="lbl">超时(秒)</span><input class="ipt" value="5"></div><div><span class="lbl">点击偏移</span><input class="ipt" value="0, 0"></div></div>'
+          :'<div class="lbl">参数</div><textarea class="ipt" style="min-height:80px">'+c.cmds[sel].p+'</textarea>'+
+            '<div class="lbl mt-3">插入变量</div><div class="flex flex-wrap gap-2"><button class="btn btn-out btn-sm">{客户名称}</button><button class="btn btn-out btn-sm">{消息内容}</button><button class="btn btn-out btn-sm">{统一内容}</button></div>'))+
+        '</div></div></div>'+
+    '</div>';
+  }else{
+    var cnt2=function(k){return c.rows.filter(function(x){return x.s===k}).length};
+    var pct=it.total?Math.round(it.done/it.total*100):0;
+    box.innerHTML=
+    '<div class="grid grid-cols-12 gap-4">'+
+      '<div class="col-span-12 xl:col-span-7 space-y-4">'+
+        '<div class="card"><div class="card-h"><h4>运行控制</h4><span class="text-[12px]" style="color:var(--g6)">F9 暂停 · F10 停止（作用于本实例）</span></div>'+
+          '<div class="p-4">'+
+            '<div class="flex items-center gap-3">'+
+              '<button class="btn btn-pri" style="height:34px;padding:0 18px" onclick="toggle(\''+it.id+'\')">'+(it.st==="run"?"暂停":"开始执行")+'</button>'+
+              '<button class="btn btn-out" onclick="toast(\'已停止本实例\')">停止</button>'+
+              '<div class="flex-1"></div><div class="flex items-center gap-2"><span class="w-2 h-2 rounded-full '+(it.st==="run"?"live":"")+'" style="background:'+(it.st==="run"?"var(--ok)":"var(--g4)")+'"></span><span class="text-[13px]">'+stText(it.st)+'</span></div>'+
+            '</div>'+
+            '<div class="mt-4 flex justify-between text-[12.5px]" style="color:var(--g7)"><span>当前：第 '+it.done+' 行 / 共 '+it.total+' 行</span><span class="font-mono">'+pct+'%</span></div>'+
+            '<div class="mini mt-1.5"><div style="width:'+pct+'%"></div></div>'+
+            '<div class="grid grid-cols-4 gap-3 mt-4">'+
+              '<div class="rounded p-3" style="border:1px solid var(--g3)"><div class="text-[12px]" style="color:var(--g7)">成功</div><div class="text-[20px] font-medium font-mono" style="color:#009A29">'+cnt2("ok")+'</div></div>'+
+              '<div class="rounded p-3" style="border:1px solid var(--g3)"><div class="text-[12px]" style="color:var(--g7)">失败</div><div class="text-[20px] font-medium font-mono" style="color:#CB2634">'+cnt2("err")+'</div></div>'+
+              '<div class="rounded p-3" style="border:1px solid var(--g3)"><div class="text-[12px]" style="color:var(--g7)">跳过</div><div class="text-[20px] font-medium font-mono">'+cnt2("skip")+'</div></div>'+
+              '<div class="rounded p-3" style="border:1px solid var(--g3)"><div class="text-[12px]" style="color:var(--g7)">待执行</div><div class="text-[20px] font-medium font-mono" style="color:var(--p6)">'+cnt2("wait")+'</div></div>'+
+            '</div>'+
+          '</div></div>'+
+      '</div>'+
+      '<div class="col-span-12 xl:col-span-5"><div class="card"><div class="card-h"><h4>本实例日志</h4><span class="text-[12px]" style="color:var(--g6)">独立保留</span></div>'+
+        '<div class="mlog" style="height:300px">'+ (it.log.slice(-40).map(function(l){return '<div style="color:'+l.c+'">'+l.t+'</div>'}).join("")||'<div style="color:#86909C">暂无日志</div>') +'</div></div></div>'+
+    '</div>';
+  }
+}
+function selCmd(i){var it=INSTS.find(function(x){return x.id===curInst});it.cfg.sel=i;renderCfg()}
+function addCmd(id,name,type){
+  var it=INSTS.find(function(x){return x.id===id});
+  it.cfg.cmds.push({t:name,p:"待配置参数（右侧属性面板填写）",type:type,on:true});
+  it.cfg.sel=it.cfg.cmds.length-1; renderCfg();
+}
+
+/* 新建实例 */
+var pick="rpa";
+function openNew(t){if(t)pick=t;pickTool(pick);var m=document.getElementById("newModal");m.classList.remove("hidden")}
+function closeNew(){document.getElementById("newModal").classList.add("hidden")}
+function pickTool(t){
+  pick=t;
+  [["pickRpa","rpa"],["pickMon","monitor"],["pickLogi","logi"]].forEach(function(p){
+    var el=document.getElementById(p[0]); if(!el) return;
+    el.style.borderColor=(t===p[1]?"var(--p6)":"var(--g3)");
+    el.style.background=(t===p[1]?"var(--p1)":"#fff");
+  });
+  document.getElementById("newExcel").style.display=(t==="rpa"||t==="logi")?"block":"none";
+  document.getElementById("newName").value= t==="rpa"?"客户管理系统": t==="logi"?"物流信息查询":"异常弹窗监控";
+}
+var TOOLMETA={
+  rpa:{name:"自动化脚本助手",color:"#165DFF",excel:"D:\\data\\客户名单_10月.xlsx",total:58},
+  monitor:{name:"桌面图片监控",color:"#00B42A",excel:"—",total:0},
+  logi:{name:"物流信息查询",color:"#FF7D00",excel:"—",total:0}
+};
+function createInst(){
+  var name=document.getElementById("newName").value.trim()||"未命名实例";
+  var win=document.getElementById("newWin").value.split(" — ")[0];
+  seq++;
+  var meta=TOOLMETA[pick];
+  var id=(pick==="monitor"?"M":pick==="logi"?"L":"A")+seq;
+  var it={id:id,tool:pick,toolName:meta.name,name:name,win:win,excel:meta.excel,st:"idle",done:0,total:meta.total,sec:0,log:[],color:meta.color,cfg:null};
+  it.cfg = pick==="logi" ? defLogiCfg() : defCfg(it);
+  if(pick==="logi") it.win="无需窗口 · Excel 处理";
+  INSTS.push(it);
+  curInst=id;
+  closeNew();renderAll();go(pick==="logi"?"cfg":"desk");
+  if(pick==="logi") renderCfg();
+  toast("已打开实例 "+id+"「"+name+"」"+(pick==="logi"?"，请上传 Excel 并选择物流单号列":"，与其它实例并行且互相隔离"));
+}
+
+/* ═══ Excel 拖拽上传（所有入口统一） ═══ */
+function dzHtml(id,tip){
+  return '<div class="dz" id="'+id+'">'+
+    '<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="var(--g4)" stroke-width="1.6"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>'+
+    '<div class="t">拖拽 Excel 文件到此处，或 <span style="color:var(--p6)">点击选择文件</span></div>'+
+    '<div class="s">支持 .xlsx / .xls / .csv'+(tip?' · '+tip:'')+'</div>'+
+    '<input type="file" id="'+id+'f" accept=".xlsx,.xls,.csv" style="display:none">'+
+  '</div>';
+}
+function bindDz(){
+  document.querySelectorAll(".dz").forEach(function(el){
+    if(el.dataset.bound) return; el.dataset.bound="1";
+    var inp=document.getElementById(el.id+"f");
+    el.addEventListener("click",function(){ if(inp) inp.click(); });
+    if(inp) inp.addEventListener("change",function(){ if(inp.files&&inp.files[0]) applyFile(el.id,inp.files[0].name); });
+    el.addEventListener("dragover",function(e){ e.preventDefault(); el.classList.add("over"); });
+    el.addEventListener("dragleave",function(){ el.classList.remove("over"); });
+    el.addEventListener("drop",function(e){
+      e.preventDefault(); el.classList.remove("over");
+      var f=e.dataTransfer&&e.dataTransfer.files&&e.dataTransfer.files[0];
+      if(f) applyFile(el.id,f.name); else toast("未识别到文件，请拖入 Excel");
+    });
+  });
+}
+function applyFile(zone,name){
+  if(!/\.(xlsx|xls|csv)$/i.test(name)){ toast("仅支持 .xlsx / .xls / .csv 文件"); return; }
+  var it=INSTS.find(function(x){return x.id===curInst}); if(!it) return;
+  if(zone==="dzLogi"){
+    it.cfg.file=name; it.cfg.cols=DEMO_COLS.slice(); it.cfg.colWaybill="物流单号"; it.cfg.rows=DEMO_LOGI_ROWS();
+    it.excel=name; renderCfg(); toast("已读取 "+name+" · 自动识别 "+DEMO_COLS.length+" 列");
+  }else if(zone==="dzRef"){
+    it.cfg.refFile=name; it.cfg.refCols=REF_COLS.slice(); it.cfg.refNo="物流单号"; it.cfg.refStatus="物流状态";
+    renderCfg(); toast("已读取对照表 "+name+" · 自动识别 "+REF_COLS.length+" 列");
+  }else{
+    it.cfg.excel=name; it.excel=name; renderCfg(); toast("已读取 "+name+" · 自动识别列名与行数");
+  }
+}
+var DEMO_COLS=["订单编号","客户名称","物流单号","收货地址","下单时间","备注"];
+function DEMO_LOGI_ROWS(){return [
+  {no:"SF1234567890",co:"",st:"待查询",time:"",trace:""},
+  {no:"YT9876543210",co:"",st:"待查询",time:"",trace:""},
+  {no:"JD0011223344",co:"",st:"待查询",time:"",trace:""},
+  {no:"SF5566778899",co:"",st:"待查询",time:"",trace:""},
+  {no:"ZT1122334455",co:"",st:"待查询",time:"",trace:""},
+  {no:"YD6677889900",co:"",st:"待查询",time:"",trace:""}
+]}
+function defLogiCfg(){return {
+  file:null,cols:[],colWaybill:null,writeCols:["物流公司","物流状态","签收时间","最新轨迹"],rows:[],
+  provider:"excel",refFile:null,refCols:[],refNo:null,refStatus:null,site:"快递100 网页版",
+  flow:"内置流程：网页查询（输入单号 → 读取结果）",interval:1500,retry:2,concur:1
+}}
+var REF_COLS=["物流单号","快递公司","物流状态","签收时间","最新轨迹"];
+function setProvider(p){
+  var it=INSTS.find(function(x){return x.id===curInst});
+  it.cfg.provider=p; renderCfg();
+  toast(p==="excel"?"查询方式：Excel 匹配合并（纯本地，不联网）":p==="web"?"查询方式：网页自动化（复用 RPA 引擎，无需接口）":"接口查询需申请密钥，当前不可用");
+}
+var SITES={
+  "快递100 网页版":{url:"https://www.kuaidi100.com/",input:"input#postid",btn:"#queryBtn",result:".result-info",st:".status",trace:".trace-list li"},
+  "顺丰官网":{url:"https://www.sf-express.com/chn/sc/waybill/waybill-detail",input:"input[placeholder*=单号]",btn:"button:has-text(查询)",result:".waybill-result",st:".waybill-status",trace:".route-item"},
+  "中通官网":{url:"https://www.zto.com/querybill",input:"#billCode",btn:".query-btn",result:".query-result",st:".bill-status",trace:".trace-item"},
+  "自定义站点":{url:"https://",input:"",btn:"",result:"",st:"",trace:""}
+};
+function setSite(s){
+  var it=INSTS.find(function(x){return x.id===curInst});
+  it.cfg.site=s; renderCfg(); toast("已切换站点："+s);
+}
+function setRefCol(kind,x){
+  var it=INSTS.find(function(x2){return x2.id===curInst});
+  if(kind==="no") it.cfg.refNo=x; else it.cfg.refStatus=x;
+  renderCfg(); toast("对照列已设为「"+x+"」");
+}
+function clearRef(){
+  var it=INSTS.find(function(x){return x.id===curInst});
+  it.cfg.refFile=null; it.cfg.refCols=[]; it.cfg.refNo=null; it.cfg.refStatus=null; renderCfg();
+}
+function provCard(id,title,desc,dis){
+  var it=INSTS.find(function(x){return x.id===curInst});
+  var on=(it.cfg.provider===id);
+  return '<div class="rounded border p-3 '+(dis?"":"cursor-pointer ")+'" style="border-color:'+(on?"var(--p6)":"var(--g3)")+';background:'+(on?"var(--p1)":"#fff")+';'+(dis?"opacity:.55":"")+'" '+(dis?"":'onclick="setProvider(\''+id+'\')"')+'>'+
+    '<div class="text-[13px] font-medium">'+title+(on?' ✓':'')+'</div>'+
+    '<div class="text-[11.5px] mt-1" style="color:var(--g7)">'+desc+'</div></div>';
+}
+function outName(c){ return c&&c.file ? c.file.replace(/\.(xlsx|xls|csv)$/i,"")+"_物流信息.xlsx" : "（上传后自动生成）" }
+function clearLogiFile(){
+  var it=INSTS.find(function(x){return x.id===curInst});
+  it.cfg.file=null; it.cfg.cols=[]; it.cfg.rows=[]; it.cfg.colWaybill=null; it.done=0; renderCfg(); renderAll();
+}
+function setWaybillCol(x){
+  var it=INSTS.find(function(x2){return x2.id===curInst});
+  it.cfg.colWaybill=x; renderCfg(); toast("物流单号列已设为「"+x+"」");
+}
+function renderLogiCfg(it,box){
+  var c=it.cfg;
+  var rowsHtml=c.rows.map(function(r){
+    return '<tr><td class="font-mono" style="font-size:12px">'+r.no+'</td>'+
+      '<td>'+(r.co||"—")+'</td>'+
+      '<td>'+(r.st==="待查询"?'<span class="tag t-neu">待查询</span>':r.st==="无轨迹"?'<span class="tag t-err">无轨迹</span>':'<span class="tag t-ok">'+r.st+'</span>')+'</td>'+
+      '<td class="font-mono" style="font-size:12px">'+(r.time||"—")+'</td></tr>';
+  }).join("");
+  box.innerHTML=
+  '<div class="grid grid-cols-12 gap-4">'+
+    '<div class="col-span-12 xl:col-span-7 space-y-4">'+
+      '<div class="card"><div class="card-h"><h4>上传 Excel</h4><span class="tag t-neu">支持拖拽上传</span></div>'+
+        '<div class="p-4">'+
+        (c.file
+          ? '<div class="flex items-center gap-3 p-3 rounded" style="border:1px solid var(--g3);background:var(--g1)">'+
+            '<div class="w-9 h-9 rounded flex items-center justify-center flex-none" style="background:#23AD3A">'+
+              '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg></div>'+
+            '<div class="min-w-0 flex-1"><div class="text-[13px] font-medium truncate">'+c.file+'</div>'+
+            '<div class="text-[12px]" style="color:var(--g6)">已识别 '+c.cols.length+' 列 · '+c.rows.length+' 行</div></div>'+
+            '<button class="btn btn-out btn-sm" onclick="clearLogiFile()">更换文件</button></div>'
+          : dzHtml("dzLogi","上传后自动检测所有列名"))+
+        '</div></div>'+
+      (c.file?
+      '<div class="card"><div class="card-h"><h4>自动检测的列</h4><span class="text-[12px]" style="color:var(--g6)">点击选择「物流单号」列</span></div>'+
+        '<div class="p-4">'+
+          '<div class="flex flex-wrap gap-2">'+c.cols.map(function(x){
+            return '<button class="btn btn-sm '+(x===c.colWaybill?"btn-pri":"btn-out")+'" onclick="setWaybillCol(\''+x+'\')">'+x+(x===c.colWaybill?" ✓":"")+'</button>';
+          }).join("")+'</div>'+
+          '<div class="text-[12px] mt-3" style="color:var(--g6)">当前物流单号列：<b style="color:var(--p6)">'+c.colWaybill+'</b> · 将按该列逐行查询物流信息</div>'+
+        '</div></div>'+
+      '<div class="card"><div class="card-h"><h4>查询方式</h4><span class="tag t-neu">不依赖接口也能用</span></div>'+
+        '<div class="p-4 space-y-3">'+
+          '<div class="grid grid-cols-1 md:grid-cols-3 gap-3">'+
+            provCard("excel","① Excel 匹配合并","用平台导出的物流表按单号合并，纯本地、最快最稳")+
+            provCard("web","② 网页自动化查询","复用 RPA 引擎打开查询页读取结果，无需申请接口")+
+            provCard("api","③ 接口查询","快递100 / 顺丰 / 京东官方，需密钥（预留）",true)+
+          '</div>'+
+          (c.provider==="excel"?
+            '<div class="pt-1">'+
+              (c.refFile
+                ? '<div class="flex items-center gap-3 p-3 rounded" style="border:1px solid var(--g3);background:var(--g1)">'+
+                  '<div class="w-9 h-9 rounded flex items-center justify-center flex-none" style="background:#23AD3A"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg></div>'+
+                  '<div class="min-w-0 flex-1"><div class="text-[13px] font-medium truncate">'+c.refFile+'</div><div class="text-[12px]" style="color:var(--g6)">对照表 · '+c.refCols.length+' 列</div></div>'+
+                  '<button class="btn btn-out btn-sm" onclick="clearRef()">更换</button></div>'
+                : dzHtml("dzRef","上传平台导出的物流对照表"))+
+              (c.refFile?
+                '<div class="grid grid-cols-2 gap-3 mt-3">'+
+                  '<div><span class="lbl">对照表「单号」列</span><select class="ipt">'+c.refCols.map(function(x){return '<option'+(x===c.refNo?" selected":"")+'>'+x+'</option>'}).join("")+'</select></div>'+
+                  '<div><span class="lbl">对照表「状态」列</span><select class="ipt">'+c.refCols.map(function(x){return '<option'+(x===c.refStatus?" selected":"")+'>'+x+'</option>'}).join("")+'</select></div>'+
+                '</div>'
+                : '')+
+              '<div class="rounded p-3 mt-3 text-[12px]" style="background:var(--g1);border:1px solid var(--g3);color:var(--g7)">'+
+                '不调用任何外部服务：按单号做 VLOOKUP 式合并，万行秒级完成，不受页面改版与风控影响</div>'+
+            '</div>'
+          : c.provider==="web"?
+            '<div class="pt-1 space-y-3">'+
+              '<div class="grid grid-cols-2 gap-3">'+
+                '<div><span class="lbl">查询站点</span><select class="ipt" id="siteSel" onchange="setSite(this.value)">'+
+                  ['快递100 网页版','顺丰官网','中通官网','自定义站点'].map(function(s){return '<option'+(c.site===s?" selected":"")+'>'+s+'</option>'}).join("")+
+                '</select></div>'+
+                '<div><span class="lbl">抓取方式</span><select class="ipt">'+
+                  '<option>DOM 选择器提取（推荐）</option><option>页面内部接口（XHR 复现）</option><option>截图 + OCR（兜底）</option>'+
+                '</select></div>'+
+              '</div>'+
+              '<div class="rounded p-3" style="border:1px solid var(--g3)">'+
+                '<div class="flex items-center justify-between mb-2">'+
+                  '<span class="text-[12.5px] font-medium">站点适配器（页面改版只改这里）</span>'+
+                  '<button class="btn btn-out btn-sm" onclick="toast(\'打开选择器录制器：点页面元素自动生成选择器\')">录制选择器</button>'+
+                '</div>'+
+                '<div class="grid grid-cols-2 gap-3">'+
+                  '<div><span class="lbl">页面地址</span><input class="ipt" value="'+(SITES[c.site||"快递100 网页版"]||SITES["快递100 网页版"]).url+'"></div>'+
+                  '<div><span class="lbl">单号输入框</span><input class="ipt font-mono" style="font-size:12px" value="'+(SITES[c.site||"快递100 网页版"]||SITES["快递100 网页版"]).input+'"></div>'+
+                  '<div><span class="lbl">查询按钮</span><input class="ipt font-mono" style="font-size:12px" value="'+(SITES[c.site||"快递100 网页版"]||SITES["快递100 网页版"]).btn+'"></div>'+
+                  '<div><span class="lbl">结果容器</span><input class="ipt font-mono" style="font-size:12px" value="'+(SITES[c.site||"快递100 网页版"]||SITES["快递100 网页版"]).result+'"></div>'+
+                  '<div><span class="lbl">状态字段</span><input class="ipt font-mono" style="font-size:12px" value="'+(SITES[c.site||"快递100 网页版"]||SITES["快递100 网页版"]).st+'"></div>'+
+                  '<div><span class="lbl">轨迹字段</span><input class="ipt font-mono" style="font-size:12px" value="'+(SITES[c.site||"快递100 网页版"]||SITES["快递100 网页版"]).trace+'"></div>'+
+                '</div>'+
+                '<div class="flex items-center gap-2 mt-3">'+
+                  '<input class="ipt" style="max-width:220px" placeholder="测试单号，如 SF1234567890">'+
+                  '<button class="btn btn-out btn-sm" onclick="toast(\'测试抓取成功：顺丰速运 · 已签收 · 10-01 15:22\')">测试抓取</button>'+
+                  '<span class="text-[12px]" style="color:var(--g6)">每次运行前自动跑一次自检，失败即告警</span>'+
+                '</div>'+
+              '</div>'+
+              '<div class="grid grid-cols-4 gap-3">'+
+                '<div><span class="lbl">每单间隔(ms)</span><input class="ipt" value="'+c.interval+'"></div>'+
+                '<div><span class="lbl">随机抖动</span><select class="ipt"><option>±30%</option><option>关闭</option></select></div>'+
+                '<div><span class="lbl">失败重试</span><input class="ipt" value="'+c.retry+'"></div>'+
+                '<div><span class="lbl">并发</span><input class="ipt" value="'+c.concur+'"></div>'+
+              '</div>'+
+              '<label class="flex items-center justify-between text-[13px]"><span>遇到验证码暂停并通知人工处理</span><span class="sw"><input type="checkbox" checked><span class="tk"></span><span class="kb"></span></span></label>'+
+              '<div class="rounded p-3 text-[12px]" style="background:#FFF7E8;border:1px solid #FFCF8B;color:#D25F00">'+
+                '限制与合规：依赖页面结构，改版需更新适配器；请限速（≥1.5s/单）、仅查询自有单号，遵守目标站点服务条款。量大建议改用平台导出或官方接口。</div>'+
+            '</div>'
+          :
+            '<div class="rounded p-3 text-[12px]" style="background:var(--g1);border:1px solid var(--g3);color:var(--g7)">'+
+              '预留：接入快递100 / 顺丰 / 京东官方接口，需在设置中填写密钥与计费信息。当前不可选，请先用 ① 或 ②</div>')+
+        '</div></div>'+
+      '<div class="card"><div class="card-h"><h4>输出设置</h4></div>'+
+        '<div class="p-4 space-y-3">'+
+          '<div><span class="lbl">输出文件（新文件，不覆盖原文件）</span><input class="ipt" value="'+outName(c)+'"></div>'+
+          '<div><span class="lbl">写入列</span><div class="flex flex-wrap gap-2">'+
+            c.writeCols.map(function(x){return '<span class="tag t-pri" style="height:26px">'+x+'</span>'}).join("")+
+          '</div></div>'+
+          '<div class="rounded p-3 text-[12px]" style="background:var(--g1);border:1px solid var(--g3);color:var(--g7)">'+
+            '原文件保持只读；查询结果按物流单号一一对应，写入新文件 '+outName(c)+'</div>'+
+        '</div></div>' : '')+
+    '</div>'+
+    '<div class="col-span-12 xl:col-span-5">'+
+      (c.file?
+      '<div class="card"><div class="card-h"><h4>数据预览</h4><span class="text-[12px]" style="color:var(--g6)">共 '+c.rows.length+' 条</span></div>'+
+        '<table class="tbl"><thead><tr><th>物流单号</th><th style="width:80px">快递公司</th><th style="width:88px">状态</th><th style="width:92px">签收时间</th></tr></thead><tbody>'+rowsHtml+'</tbody></table>'+
+        '<div class="px-4 py-3 text-[12.5px]" style="border-top:1px solid var(--g3);color:var(--g7)">查询与写入在「运行详情」中执行</div></div>'
+      : '<div class="card p-10 text-center" style="color:var(--g6)">上传 Excel 后自动检测列 → 选择物流单号列 → 到运行详情执行</div>')+
+    '</div>'+
+  '</div>';
+}
+
+/* ═══ 指令拖拽排序 ═══ */
+var dragFrom=-1;
+function dragStart(e,i){ dragFrom=i; e.target.classList.add("drag"); e.dataTransfer.effectAllowed="move"; }
+function dragOver(e,i){ e.preventDefault(); if(i!==dragFrom) e.currentTarget.classList.add("over"); }
+function dragLeave(e){ e.currentTarget.classList.remove("over"); }
+function dropCmd(e,i){
+  e.preventDefault(); e.currentTarget.classList.remove("over");
+  if(dragFrom<0||dragFrom===i) return;
+  var it=INSTS.find(function(x){return x.id===curInst});
+  var arr=it.cfg.cmds, mv=arr.splice(dragFrom,1)[0];
+  arr.splice(i,0,mv); it.cfg.sel=i; dragFrom=-1; renderCfg();
+  toast("已调整顺序：移到第 "+(i+1)+" 步");
+}
+
+/* ═══ 运行详情（从实例桌面进入） ═══ */
+var runCharts={};
+function openRun(id){ curInst=id; go("run"); renderRunPage(); }
+function stopInst(id){
+  var it=INSTS.find(function(x){return x.id===id}); if(!it) return;
+  stopT(it); it.st="idle"; pushLog(it,"已停止","#86909C"); renderAll(); renderRunPage(); toast("实例 "+id+" 已停止");
+}
+function company(no){
+  if(/^SF/i.test(no))return "顺丰速运"; if(/^YT/i.test(no))return "圆通速递";
+  if(/^JD/i.test(no))return "京东物流"; if(/^ZT/i.test(no))return "中通快递";
+  if(/^YD/i.test(no))return "韵达快递"; return "其他";
+}
+function renderRunPage(){
+  var it=INSTS.find(function(x){return x.id===curInst}); if(!it) return;
+  var isLogi=(it.tool==="logi"), rows=it.cfg.rows||[];
+  var total=isLogi? rows.length : (it.total||rows.length);
+  var done=isLogi? rows.filter(function(r){return r.st!=="待查询"}).length : it.done;
+  var pct=total?Math.round(done/total*100):0;
+  var cnt=function(k){return rows.filter(function(r){return r.s===k||r.st===k}).length};
+  document.getElementById("runTitle").textContent=it.id+" · "+it.name+"（"+it.toolName+"）";
+  document.getElementById("runSt").innerHTML=stTag(it.st);
+  document.getElementById("runBtnMain").textContent=(it.st==="run")?"暂停":"开始执行";
+  var logs=it.log.slice(-60).map(function(l){return '<div style="color:'+l.c+'">'+l.t+'</div>'}).join("")||'<div style="color:#86909C">暂无日志</div>';
+  var detailRows = isLogi
+    ? rows.map(function(r){return '<tr><td class="font-mono" style="font-size:12px">'+r.no+'</td><td>'+(r.co||"—")+'</td><td>'+
+        (r.st==="待查询"?'<span class="tag t-neu">待查询</span>':r.st==="无轨迹"?'<span class="tag t-err">无轨迹</span>':'<span class="tag t-ok">'+r.st+'</span>')+
+        '</td><td>'+(r.trace||"—")+'</td><td class="font-mono" style="font-size:12px">'+(r.time||"—")+'</td></tr>'}).join("")
+    : rows.map(function(x){return '<tr><td class="font-mono" style="font-size:12px">'+x.r+'</td><td>'+x.n+'</td><td>'+
+        (x.s==="ok"?'<span class="tag t-ok">成功</span>':x.s==="err"?'<span class="tag t-err">失败</span>':x.s==="skip"?'<span class="tag t-neu">已跳过</span>':'<span class="tag t-pri">待执行</span>')+
+        '</td><td style="color:var(--g6)">'+(x.w||"—")+'</td><td class="font-mono" style="font-size:12px">'+x.t+'</td></tr>'}).join("");
+  var k1,k2,k3,k4;
+  if(isLogi){
+    k1=["总单号",total];k2=["已查询",done];k3=["已签收",cnt("已签收")];k4=["无轨迹",cnt("无轨迹")];
+  }else{
+    k1=["成功",cnt("ok")];k2=["失败",cnt("err")];k3=["跳过",cnt("skip")];k4=["待执行",cnt("wait")];
+  }
+  var body=document.getElementById("runPageBody");
+  body.innerHTML=
+  '<div class="grid grid-cols-2 xl:grid-cols-4 gap-4 mb-4">'+
+    [k1,k2,k3,k4].map(function(k){return '<div class="card p-4"><div class="text-[12px]" style="color:var(--g7)">'+k[0]+'</div><div class="text-[22px] font-medium font-mono mt-1">'+k[1]+'</div></div>'}).join("")+
+  '</div>'+
+  '<div class="card mb-4"><div class="p-4">'+
+    '<div class="flex items-center justify-between text-[12.5px]" style="color:var(--g7)">'+
+      '<span>'+(isLogi?"查询进度：":"执行进度：")+done+" / "+total+(isLogi?" 条":" 行")+'</span><span class="font-mono">'+pct+'%</span></div>'+
+    '<div class="mini mt-1.5" style="height:3px"><div style="width:'+pct+'%"></div></div>'+
+    '<div class="flex items-center gap-4 mt-3 text-[12px]" style="color:var(--g6)">'+
+      '<span>运行时长 <b class="font-mono" style="color:var(--g10)">'+fmtSec(it.sec)+'</b></span>'+
+      '<span>'+(isLogi?"输出文件："+outName(it.cfg):"数据文件："+it.cfg.excel)+'</span>'+
+      '<span>状态：'+stText(it.st)+'</span>'+
+    '</div>'+
+  '</div></div>'+
+  '<div class="grid grid-cols-12 gap-4 mb-4">'+
+    '<div class="col-span-12 xl:col-span-4 card"><div class="card-h"><h4>结果分布</h4></div><div id="rc1" style="height:224px"></div></div>'+
+    '<div class="col-span-12 xl:col-span-4 card"><div class="card-h"><h4>'+(isLogi?"快递公司分布":"每行耗时（秒）")+'</h4></div><div id="rc2" style="height:224px"></div></div>'+
+    '<div class="col-span-12 xl:col-span-4 card"><div class="card-h"><h4>'+(isLogi?"查询耗时趋势（秒）":"成功率")+'</h4></div><div id="rc3" style="height:224px"></div></div>'+
+  '</div>'+
+  '<div class="card"><div class="card-h"><h4>执行明细</h4><span class="text-[12px]" style="color:var(--g6)">'+(isLogi?"结果写入新文件，原文件不变":"结果实时回写 Excel 状态列")+'</span></div>'+
+    '<table class="tbl"><thead><tr>'+
+      (isLogi?'<th style="width:150px">物流单号</th><th style="width:100px">快递公司</th><th style="width:92px">状态</th><th>最新轨迹</th><th style="width:104px">签收时间</th>'
+             :'<th style="width:52px">行</th><th>客户名称</th><th style="width:92px">状态</th><th>说明</th><th style="width:70px">耗时</th>')+
+    '</tr></thead><tbody>'+detailRows+'</tbody></table>'+
+  '</div>'+
+  '<div class="card mt-4"><div class="card-h"><h4>运行日志</h4><span class="text-[12px]" style="color:var(--g6)">仅保留本实例日志</span></div>'+
+    '<div class="term h-44 overflow-y-auto p-3.5 rounded-b-md" id="runLogBox">'+logs+'</div></div>';
+  drawRunCharts(it,isLogi);
+}
+function drawRunCharts(it,isLogi){
+  if(typeof echarts==="undefined") return;
+  Object.keys(runCharts).forEach(function(k){ try{runCharts[k].dispose()}catch(e){} });
+  runCharts={};
+  var ax={axisLine:{lineStyle:{color:"#E5E6EB"}},axisLabel:{fontSize:11,color:"#A9AEB8"},axisTick:{show:false}};
+  var rows=it.cfg.rows||[], cnt=function(k){return rows.filter(function(r){return r.s===k||r.st===k}).length};
+  var c1=echarts.init(document.getElementById("rc1"));
+  c1.setOption({
+    tooltip:{trigger:"item"},
+    legend:{bottom:0,itemWidth:8,itemHeight:8,textStyle:{fontSize:12,color:"#6B7785"}},
+    series:[{type:"pie",radius:["50%","72%"],center:["50%","43%"],itemStyle:{borderColor:"#fff",borderWidth:2},
+      label:{show:true,position:"center",formatter:function(p){return p.value+"\n"+p.name},fontSize:13,color:"#4E5969",lineHeight:20},
+      data: isLogi
+        ? [{value:cnt("已签收"),name:"已签收",itemStyle:{color:"#00B42A"}},{value:cnt("运输中"),name:"运输中",itemStyle:{color:"#165DFF"}},
+           {value:cnt("已揽收"),name:"已揽收",itemStyle:{color:"#BEDAFF"}},{value:cnt("无轨迹"),name:"无轨迹",itemStyle:{color:"#F53F3F"}},
+           {value:cnt("待查询"),name:"待查询",itemStyle:{color:"#E5E6EB"}}]
+        : [{value:cnt("ok"),name:"成功",itemStyle:{color:"#00B42A"}},{value:cnt("err"),name:"失败",itemStyle:{color:"#F53F3F"}},
+           {value:cnt("skip"),name:"跳过",itemStyle:{color:"#C9CDD4"}},{value:cnt("wait"),name:"待执行",itemStyle:{color:"#BEDAFF"}}]}]
+  });
+  var c2=echarts.init(document.getElementById("rc2"));
+  if(isLogi){
+    var cos={};
+    rows.forEach(function(r){ if(r.co) cos[r.co]=(cos[r.co]||0)+1; });
+    c2.setOption({grid:{left:70,right:20,top:14,bottom:16},tooltip:{trigger:"axis"},
+      xAxis:{type:"value",splitLine:{lineStyle:{color:"#F2F3F5"}},axisLabel:{fontSize:11,color:"#A9AEB8"}},
+      yAxis:{type:"category",data:Object.keys(cos),...ax},
+      series:[{type:"bar",data:Object.keys(cos).map(function(k){return cos[k]}),itemStyle:{color:"#165DFF",borderRadius:[0,3,3,0]},barWidth:12}]});
+  }else{
+    var lc=rows.filter(function(r){return r.t&&r.t!=="—"}).map(function(r){return parseFloat(r.t)||0});
+    c2.setOption({grid:{left:34,right:14,top:14,bottom:24},tooltip:{trigger:"axis"},
+      xAxis:{type:"category",data:lc.map(function(_,i){return "r"+(i+1)}),...ax},
+      yAxis:{type:"value",splitLine:{lineStyle:{color:"#F2F3F5"}},axisLabel:{fontSize:11,color:"#A9AEB8"}},
+      series:[{type:"line",smooth:true,symbolSize:5,data:lc.length?lc:[2.4,5.1,3.0,3.6,2.8,3.1],itemStyle:{color:"#165DFF"},areaStyle:{color:"rgba(22,93,255,.08)"}}]});
+  }
+  var c3=echarts.init(document.getElementById("rc3"));
+  var total=rows.length||1, fin=isLogi? rows.filter(function(r){return r.st!=="待查询"}).length : cnt("ok");
+  var rate=Math.round(fin/total*100);
+  c3.setOption({
+    grid:{left:34,right:14,top:14,bottom:24},tooltip:{trigger:"axis"},
+    xAxis:{type:"category",data:(isLogi?rows:rows).map(function(_,i){return (isLogi?"n":"r")+(i+1)}),...ax},
+    yAxis:{type:"value",splitLine:{lineStyle:{color:"#F2F3F5"}},axisLabel:{fontSize:11,color:"#A9AEB8"}},
+    series:[{type:"line",smooth:true,symbolSize:5,data:rows.map(function(_,i){return +(1.5+Math.random()*3).toFixed(1)}),itemStyle:{color:"#00B42A"},areaStyle:{color:"rgba(0,180,42,.08)"}}]
+  });
+  runCharts={c1:c1,c2:c2,c3:c3};
+  window.addEventListener("resize",function(){c1.resize();c2.resize();c3.resize()});
+}
+
+/* 导航 */
+function go(p){
+  document.querySelectorAll(".rail-i[data-page]").forEach(function(x){x.classList.toggle("on",x.dataset.page===p)});
+  ["tools","inst","desk","cfg","run","images","engine"].forEach(function(x){document.getElementById("page-"+x).classList.toggle("hidden",x!==p)});
+  if(p==="desk")renderDesk();
+  if(p==="run")renderRunPage();
+  if(p==="cfg"){renderCfgSel();renderCfg()}
+}
+document.querySelectorAll(".rail-i[data-page]").forEach(function(b){b.onclick=function(){go(b.dataset.page)}});
+
+renderAll();renderCfgSel();renderCfg();
+pushLog(INSTS[0],"已绑定窗口：客户管理系统 v3.2","#86909C");
+pushLog(INSTS[0],"开始执行 · 跳过 3 行已成功","#C9CDD4");
+pushLog(INSTS[2],"已布防 · 规则 ×2 · 全屏","#86909C");
+</script>
+</body>
+</html>

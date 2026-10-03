@@ -1,0 +1,361 @@
+{
+  "_comment": "模板与格式化引擎的黄金用例。两侧各留一份内容相同的副本：python/tests/fixtures/template_cases.json 与 src/lib/template.cases.json。改动必须同步，由 python/tests/test_template_cases_parity.py 看守。期望值必须是能手算验证的独立真相，禁止由实现反推。",
+  "_known_divergence": "整数取值的浮点数（100.0）无法跨语言对齐：Python str(100.0)='100.0'，JS String(100.0)='100'。因此本文件禁止出现整数值的浮点，只用整数与真小数。",
+  "_sections": "render = 模板语法与集成用例（expected 是整句文本）；format = 单个格式化器的同构边界打表（{fmt, arg?, in, out}，测试自动拼成 {值|<fmt>[:arg]}）；issues = 保存时校验（拿「列都在、值都为空」的一行 dry-run）；errors = 必须整行失败的情形。",
+  "_slices_done": "S1 向后兼容 · S2 {列名|money}（解析层 + 注册表） · S3 rmb · S4 mask · S5 date · S6 cut/pad/upper/lower/trim/default · S7 前端 src/lib/template.ts 与后端共用用例 · S8 template_issues 保存时校验",
+  "render": [
+    {
+      "id": "compat-two-vars",
+      "why": "老模板：不带格式化器，行为必须一字不变",
+      "tpl": "您好 {客户名称}，您的单号是 {订单编号}",
+      "row": { "values": { "客户名称": "张三", "订单编号": "A001" } },
+      "out": "您好 张三，您的单号是 A001"
+    },
+    {
+      "id": "compat-no-placeholder",
+      "why": "没有占位符的文本原样返回",
+      "tpl": "纯文本，没有任何占位符",
+      "row": { "values": { "订单编号": "A001" } },
+      "out": "纯文本，没有任何占位符"
+    },
+    {
+      "id": "compat-repeated",
+      "why": "同一个列名出现多次都要替换",
+      "tpl": "{订单编号} / {订单编号}",
+      "row": { "values": { "订单编号": "A001" } },
+      "out": "A001 / A001"
+    },
+    {
+      "id": "compat-value-with-braces",
+      "why": "值里带花括号不能被二次解析成占位符",
+      "tpl": "模板 {订单编号}",
+      "row": { "values": { "订单编号": "{不是占位符}" } },
+      "out": "模板 {不是占位符}"
+    },
+    {
+      "id": "compat-number-cell",
+      "why": "数字单元格按原样取用（用真小数，规避上面写的浮点表示分歧）",
+      "tpl": "金额：{金额}",
+      "row": { "values": { "金额": 99.5 } },
+      "out": "金额：99.5"
+    },
+    {
+      "id": "compat-null-is-empty",
+      "why": "空单元格渲染成空串，不能出现字面量 None / null",
+      "tpl": "备注[{备注}]",
+      "row": { "values": { "备注": null } },
+      "out": "备注[]"
+    },
+    {
+      "id": "compat-spaces-in-key",
+      "why": "列名前后有空格时按去空格后的列名取",
+      "tpl": "单号 { 订单编号 }",
+      "row": { "values": { "订单编号": "A001" } },
+      "out": "单号 A001"
+    },
+    {
+      "id": "compat-builtin-rowno-key",
+      "why": "行号与主键是内置占位符，不要求出现在 values 里",
+      "tpl": "第{行号}行 / 主键{主键}",
+      "row": { "values": {}, "row_no": 7, "key": "李四" },
+      "out": "第7行 / 主键李四"
+    },
+    {
+      "id": "money-syntax",
+      "why": "money 的最小语法用例：它证明带竖线的占位符能被解析出来",
+      "tpl": "{金额|money}",
+      "row": { "values": { "金额": "1234.56" } },
+      "out": "1,234.56"
+    },
+    {
+      "id": "money-currency-prefix",
+      "why": "模板里的字面量 ¥ 和输入里的全角 ￥ 互不干扰",
+      "tpl": "¥{金额|money}",
+      "row": { "values": { "金额": " ￥99 " } },
+      "out": "¥99.00"
+    },
+    {
+      "id": "money-mixed-with-plain",
+      "why": "格式化器与普通占位符可以混在一句话里",
+      "tpl": "单号 {订单编号}，金额 {金额|money}",
+      "row": { "values": { "订单编号": "A001", "金额": "1234.5" } },
+      "out": "单号 A001，金额 1,234.50"
+    },
+    {
+      "id": "rmb-syntax",
+      "why": "rmb 的最小语法用例",
+      "tpl": "{金额|rmb}",
+      "row": { "values": { "金额": "1234.5" } },
+      "out": "壹仟贰佰叁拾肆元伍角"
+    },
+    {
+      "id": "fallback-pipe-in-column-name",
+      "why": "兼容退路：列名本身就带竖线时，先按列名查、查不到再按整串查一次",
+      "tpl": "{客户|名称}",
+      "row": { "values": { "客户|名称": "张三" } },
+      "out": "张三"
+    }
+  ],
+  "format": [
+    { "fmt": "money", "in": 0, "out": "0.00" },
+    { "fmt": "money", "in": 99.5, "out": "99.50" },
+    { "fmt": "money", "in": "-1234.5", "out": "-1,234.50" },
+    { "fmt": "money", "in": "1,234.5", "out": "1,234.50" },
+    { "fmt": "money", "in": "1234567.891", "out": "1,234,567.89" },
+    { "fmt": "money", "in": "1.005", "out": "1.01", "why": "精确到分再进位上舍；JS 若先过 Number 会得到 1.0049999… 从而分歧" },
+    { "fmt": "money", "in": "-0.001", "out": "0.00", "why": "负数舍到零要归零，不能输出 -0.00" },
+    { "fmt": "money", "in": "1.35", "out": "1.35", "why": "不需要进位的一分钱也要补足两位" },
+    { "fmt": "money", "in": "", "out": "" },
+    { "fmt": "money", "in": null, "out": "" },
+
+    { "fmt": "rmb", "in": "0", "out": "零元整" },
+    { "fmt": "rmb", "in": "0.5", "out": "伍角" },
+    { "fmt": "rmb", "in": "0.05", "out": "伍分" },
+    { "fmt": "rmb", "in": "0.55", "out": "伍角伍分" },
+    { "fmt": "rmb", "in": "1", "out": "壹元整" },
+    { "fmt": "rmb", "in": "10", "out": "壹拾元整" },
+    { "fmt": "rmb", "in": "100.05", "out": "壹佰元零伍分" },
+    { "fmt": "rmb", "in": "101", "out": "壹佰零壹元整" },
+    { "fmt": "rmb", "in": "1000", "out": "壹仟元整" },
+    { "fmt": "rmb", "in": "1234.5", "out": "壹仟贰佰叁拾肆元伍角" },
+    { "fmt": "rmb", "in": "10000", "out": "壹万元整" },
+    { "fmt": "rmb", "in": "10001", "out": "壹万零壹元整" },
+    { "fmt": "rmb", "in": "100000", "out": "壹拾万元整" },
+    { "fmt": "rmb", "in": "105000", "out": "壹拾万伍仟元整" },
+    { "fmt": "rmb", "in": "1000000", "out": "壹佰万元整" },
+    { "fmt": "rmb", "in": "1000000.05", "out": "壹佰万元零伍分" },
+    { "fmt": "rmb", "in": "20000000.07", "out": "贰仟万元零柒分" },
+    { "fmt": "rmb", "in": "100000000", "out": "壹亿元整" },
+    { "fmt": "rmb", "in": "100010000", "out": "壹亿零壹万元整" },
+    { "fmt": "rmb", "in": "100000001", "out": "壹亿零壹元整" },
+    { "fmt": "rmb", "in": "1000000000.01", "out": "壹拾亿元零壹分" },
+    { "fmt": "rmb", "in": "1000000000000", "out": "壹万亿元整" },
+    { "fmt": "rmb", "in": "99999.99", "out": "玖万玖仟玖佰玖拾玖元玖角玖分" },
+    { "fmt": "rmb", "in": "-1234.5", "out": "负壹仟贰佰叁拾肆元伍角" },
+    { "fmt": "rmb", "in": "1.005", "out": "壹元零壹分", "why": "与 money 用同一套进位，不能一个进一个不进" },
+    { "fmt": "rmb", "in": "-0.001", "out": "零元整", "why": "负数舍到零就是零元整" },
+    { "fmt": "rmb", "in": "¥1,234.56", "out": "壹仟贰佰叁拾肆元伍角陆分" },
+    { "fmt": "rmb", "in": "", "out": "" },
+    { "fmt": "rmb", "in": null, "out": "" },
+
+    { "fmt": "mask", "in": "13812345678", "out": "138****5678", "why": "自动识别 11 位手机号" },
+    { "fmt": "mask", "in": "110101199001011234", "out": "1101**********1234", "why": "自动识别 18 位身份证" },
+    { "fmt": "mask", "in": "110101900101123", "out": "1101*******1123", "why": "15 位老身份证也算身份证" },
+    { "fmt": "mask", "in": "小明同学", "out": "小**学", "why": "认不出类型时按姓名脱敏" },
+    { "fmt": "mask", "in": "王小明", "out": "王*明" },
+    { "fmt": "mask", "in": "张三", "out": "张*" },
+    { "fmt": "mask", "in": "张", "out": "张", "why": "一个字没法脱敏，原样返回" },
+    { "fmt": "mask", "arg": "phone", "in": "13812345678", "out": "138****5678", "why": "强制指定手机号" },
+    { "fmt": "mask", "arg": "phone", "in": "138-1234-5678", "out": "138******5678", "why": "带分隔符时首 3 尾 4 仍然可读，中间全部打掉" },
+    { "fmt": "mask", "arg": "id", "in": "110101199001011234", "out": "1101**********1234" },
+    { "fmt": "mask", "arg": "name", "in": "13812345678", "out": "1*********8", "why": "强制当姓名处理，只留首尾" },
+    { "fmt": "mask", "in": "", "out": "" },
+    { "fmt": "mask", "in": null, "out": "", "why": "空单元格不能变成 N***e" },
+
+    { "fmt": "cut", "arg": "5", "in": "abcdefgh", "out": "abcde…", "why": "截断后才加省略号" },
+    { "fmt": "cut", "arg": "5", "in": "abcde", "out": "abcde", "why": "正好等于长度，不算截断" },
+    { "fmt": "cut", "arg": "5", "in": "abc", "out": "abc", "why": "没超长就不加省略号" },
+    { "fmt": "cut", "arg": "1", "in": "ab", "out": "a…" },
+    { "fmt": "cut", "arg": "3", "in": "", "out": "" },
+    { "fmt": "cut", "arg": "3", "in": null, "out": "" },
+
+    { "fmt": "pad", "arg": "6", "in": "123", "out": "000123", "why": "左补零到指定位数" },
+    { "fmt": "pad", "arg": "6", "in": "123456", "out": "123456", "why": "已经够长就原样" },
+    { "fmt": "pad", "arg": "6", "in": "1234567", "out": "1234567", "why": "超长不截断（截断是 cut 的事）" },
+    { "fmt": "pad", "arg": "6", "in": 123, "out": "000123", "why": "数字单元格先转文本再补" },
+    { "fmt": "pad", "arg": "4", "in": "", "out": "", "why": "空的不补零 —— 补出 0000 会真的发出去" },
+    { "fmt": "pad", "arg": "4", "in": null, "out": "" },
+
+    { "fmt": "upper", "in": "abc", "out": "ABC" },
+    { "fmt": "upper", "in": "a1-b", "out": "A1-B" },
+    { "fmt": "lower", "in": "ABC", "out": "abc" },
+    { "fmt": "trim", "in": "  单号  ", "out": "单号" },
+    { "fmt": "trim", "in": "　单号　", "out": "单号", "why": "全角空格也要去掉" },
+    { "fmt": "trim", "in": "", "out": "" },
+
+    { "fmt": "default", "arg": "暂无", "in": "", "out": "暂无", "why": "空串用兜底值" },
+    { "fmt": "default", "arg": "暂无", "in": null, "out": "暂无" },
+    { "fmt": "default", "arg": "暂无", "in": "  ", "out": "暂无", "why": "纯空白发出去等于空字段，也算空" },
+    { "fmt": "default", "arg": "暂无", "in": "张三", "out": "张三", "why": "有值就用原值" },
+    { "fmt": "default", "arg": "面议", "in": 0, "out": "0", "why": "0 是有效值，不能被兜底吃掉" },
+
+    { "fmt": "date", "arg": "YYYY-MM-DD", "in": "2026-10-02 13:20:00", "out": "2026-10-02" },
+    { "fmt": "date", "arg": "MM-DD HH:mm", "in": "2026-10-02 13:20", "out": "10-02 13:20" },
+    { "fmt": "date", "arg": "YYYY年MM月DD日", "in": "2026-10-02", "out": "2026年10月02日" },
+    { "fmt": "date", "arg": "HH:mm:ss", "in": "2026/10/02 09:05:03", "out": "09:05:03", "why": "个位数要补零" },
+    { "fmt": "date", "arg": "YYYY-MM-DD", "in": "2026年10月2日", "out": "2026-10-02", "why": "中文日期也要认，输出仍补零" },
+    { "fmt": "date", "arg": "YYYY-MM-DD", "in": "2026年10月2日 13:20", "out": "2026-10-02" },
+    { "fmt": "date", "arg": "YYYY/MM/DD", "in": "2026-10-02T13:20:00", "out": "2026/10/02", "why": "ISO 带 T 的写法" },
+    { "fmt": "date", "arg": "YYYY-MM-DD HH:mm", "in": "2026-10-02T13:20:00.123Z", "out": "2026-10-02 13:20", "why": "毫秒与 Z 先剥掉再解析" },
+    { "fmt": "date", "arg": "YYYY", "in": "2026-10-02", "out": "2026" },
+    { "fmt": "date", "arg": "MM/DD", "in": "2026-10-02", "out": "10/02", "why": "格式里没有的片段就不输出" },
+    { "fmt": "date", "arg": "YYYY-MM-DD", "in": "", "out": "" },
+    { "fmt": "date", "arg": "YYYY-MM-DD", "in": null, "out": "" }
+  ],
+  "issues": [
+    {
+      "why": "保存时一次把话说完，不是遇到第一个就停",
+      "tpl": "{订单号} / {客户名}",
+      "columns": ["订单号"],
+      "issues": [
+        "当前行没有「客户名」这一列，占位符 {客户名} 无法替换"
+      ]
+    },
+    {
+      "why": "带格式化器时列名同样要校验，报错要连着格式化器一起指出来",
+      "tpl": "{订单号} 金额 {金额|money}",
+      "columns": ["订单号"],
+      "issues": [
+        "当前行没有「金额」这一列，占位符 {金额|money} 无法替换"
+      ]
+    },
+    {
+      "why": "列都在，但格式化器拼错了 —— 这种错不该等到跑起来才发现",
+      "tpl": "金额：{金额|meney}",
+      "columns": ["金额"],
+      "issues": [
+        "未知的格式化器「meney」，占位符 {金额|meney} 无法替换"
+      ]
+    },
+    {
+      "why": "值虽然是空的，写错的位数也不能放过（pad 为此把参数校验提到了空值判断前面）",
+      "tpl": "{订单号|pad:abc}",
+      "columns": ["订单号"],
+      "issues": [
+        "格式化器 pad 需要一个位数（例如 pad:8），收到「abc」"
+      ]
+    },
+    {
+      "why": "date 不写格式是配置错误，不是运行时才发现的问题",
+      "tpl": "{下单时间|date}",
+      "columns": ["下单时间"],
+      "issues": [
+        "格式化器 date 需要一个格式，例如 date:YYYY-MM-DD"
+      ]
+    },
+    {
+      "why": "全都对，一条问题都不该报",
+      "tpl": "单号 {订单号}，金额 {金额|money}，大写 {金额|rmb}",
+      "columns": ["订单号", "金额"],
+      "issues": []
+    },
+    {
+      "why": "行号/主键是内置占位符，不能被当成缺列",
+      "tpl": "第{行号}行 {订单号}，主键 {主键}",
+      "columns": ["订单号"],
+      "issues": []
+    },
+    {
+      "why": "没有占位符就没有问题",
+      "tpl": "纯文本",
+      "columns": [],
+      "issues": []
+    },
+    {
+      "why": "兼容退路：列名本身带竖线时按整串命中，不该报缺列",
+      "tpl": "{客户|名称}",
+      "columns": ["客户|名称"],
+      "issues": []
+    }
+  ],
+  "errors": [
+    {
+      "id": "err-unknown-column",
+      "why": "列名写错时必须整行失败 —— 原样发出去就是把 {客户名} 发给客户",
+      "tpl": "您好 {客户名}",
+      "row": { "values": { "客户名称": "张三" } },
+      "message_contains": "「客户名」"
+    },
+    {
+      "id": "err-message-has-placeholder",
+      "why": "报错文案里要带上占位符原文，方便对着模板改",
+      "tpl": "单号 {订单编}",
+      "row": { "values": { "订单编号": "A001" } },
+      "message_contains": "{订单编}"
+    },
+    {
+      "id": "err-values-missing",
+      "why": "values 整个缺失时同样要失败，不能静默留空",
+      "tpl": "{订单编号}",
+      "row": {},
+      "message_contains": "「订单编号」"
+    },
+    {
+      "id": "err-unknown-formatter",
+      "why": "格式化器拼错必须报错，不能静默降级成原样输出",
+      "tpl": "{金额|meney}",
+      "row": { "values": { "金额": "1234.5" } },
+      "message_contains": "「meney」"
+    },
+    {
+      "id": "err-money-not-a-number",
+      "why": "非空但解析不出数字：静默输出会把「待定」拼进给客户的文本",
+      "tpl": "金额：{金额|money}",
+      "row": { "values": { "金额": "待定" } },
+      "message_contains": "「待定」"
+    },
+    {
+      "id": "err-rmb-not-a-number",
+      "why": "rmb 与 money 用同一套规矩对待脏数据",
+      "tpl": "{金额|rmb}",
+      "row": { "values": { "金额": "面议" } },
+      "message_contains": "「面议」"
+    },
+    {
+      "id": "err-formatter-column-missing",
+      "why": "带了格式化器，列名仍然要指向真实存在的列",
+      "tpl": "{金额|money}",
+      "row": { "values": { "订单金额": "1" } },
+      "message_contains": "「金额」"
+    },
+    {
+      "id": "err-mask-unknown-kind",
+      "why": "mask 的参数是枚举，写错要报错而不是悄悄退回自动识别",
+      "tpl": "{手机号|mask:mobile}",
+      "row": { "values": { "手机号": "13812345678" } },
+      "message_contains": "「mobile」"
+    },
+    {
+      "id": "err-cut-needs-a-number",
+      "why": "位数写成非数字要报错，不能当成 0 位把内容全截掉",
+      "tpl": "{内容|cut:abc}",
+      "row": { "values": { "内容": "订单说明" } },
+      "message_contains": "cut"
+    },
+    {
+      "id": "err-pad-needs-a-number",
+      "why": "同上",
+      "tpl": "{订单号|pad:x}",
+      "row": { "values": { "订单号": "123" } },
+      "message_contains": "pad"
+    },
+    {
+      "id": "err-chained-formatters",
+      "why": "目前不支持链式格式化器，必须报错而不是悄悄只做前半段",
+      "tpl": "{金额|money|trim}",
+      "row": { "values": { "金额": "1234.5" } },
+      "message_contains": "money|trim"
+    },
+    {
+      "id": "err-date-without-format",
+      "why": "只写 date 不写格式等于没说想输出成什么样，要报错",
+      "tpl": "{下单时间|date}",
+      "row": { "values": { "下单时间": "2026-10-02" } },
+      "message_contains": "date"
+    },
+    {
+      "id": "err-date-not-a-date",
+      "why": "自然语言时间不猜，宁可失败也不要发出错日期",
+      "tpl": "{下单时间|date:YYYY-MM-DD}",
+      "row": { "values": { "下单时间": "昨天" } },
+      "message_contains": "昨天"
+    },
+    {
+      "id": "err-date-ambiguous-format",
+      "why": "02/10/2026 是 2 月 10 日还是 10 月 2 日？不接受歧义格式",
+      "tpl": "{下单时间|date:YYYY-MM-DD}",
+      "row": { "values": { "下单时间": "02/10/2026" } },
+      "message_contains": "02/10/2026"
+    }
+  ]
+}
