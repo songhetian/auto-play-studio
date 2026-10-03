@@ -30,6 +30,8 @@ export default defineConfig({
     // 默认 pool 是 'web'，其 worker 会把 fetch 缓存写进 <TMP>/web，本地沙箱拦截该写入（EPERM）
     // 导致 api.test.ts 等文件收集被中断；改用 threads 池（纯 Node worker）绕开该缓存目录。
     pool: 'threads',
-    include: ['src/**/*.test.ts', 'src/**/*.test.tsx'],
+    // electron/ 是主进程代码，但其中「纯逻辑 + 注入点」的部分（如通知泵）同样要测：
+    // 设备层（真弹窗、角标）只人工验收，可测部分靠注入假实现。
+    include: ['src/**/*.test.ts', 'src/**/*.test.tsx', 'electron/**/*.test.ts'],
   },
 })

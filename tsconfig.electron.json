@@ -12,5 +12,7 @@
     "outDir": "dist-electron",
     "rootDir": "electron"
   },
-  "include": ["electron/**/*.ts"]
+  "include": ["electron/**/*.ts"],
+  // 测试只跑在 vitest 里（tsc 用 CommonJS + types:node，vitest 的导入会报错），别编译进 dist-electron
+  "exclude": ["electron/**/*.test.ts"]
 }

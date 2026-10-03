@@ -121,12 +121,22 @@ seam = `deliver(payload, channels, routing)`，返回 `{通道名: 'ok' | 'fail:
   会以为自己填错了。失败原因原样回界面（不抛 500）。真发信器走 `Depends(webhook_poster)`，测试可覆盖
   （**依赖覆盖必须挂在 `api` 子应用上**）。
 
+**S4 ✅ 桌面通知设备层**（`electron/notifications.ts` + `notifications.test.ts`，7 例 + 真机验收 10 项）
+- 泵：`createNotifyPump({fetchOutbox, fetchUnread, show, setBadge, onError}, intervalMs)`。
+  启动**立刻**拉一次（命中到弹窗的预算是 3 秒，不该先白等一个周期）；
+  上一轮没回来不叠下一轮；引擎抖一下只记一笔、下一轮照常；未读数变了才设角标。
+- 可测部分靠注入，设备层（真 toast / 角标）只人工验收。为跑这 7 例：
+  vitest 的 `include` 加了 `electron/**/*.test.ts`，`tsconfig.electron.json` 里把测试 `exclude`
+  （tsc 只认 CommonJS + types:node，编译 vitest 的测试会报错）。
+- 主进程接线：`new Notification` + 点通知回到控制台；角标 `app.setBadgeCount`（macOS/Linux），
+  **Windows 上它没有效果、做 overlay/托盘又需要先有图标资源**，所以 Windows 把未读数写进窗口标题
+  （`AutoPlay 控制台 · 3 条未读`），任务栏上看得到。另设了 `app.setAppUserModelId`（打包后通知才显示应用名）。
+- 真机验收 `.scratch/verify/run-notify-pump.sh`：引擎 8799 + **真 fetch 打真引擎**
+  （URL / 响应结构 / 游标推进 / 停止后不再取全覆盖），触发路径用现成的
+  `POST /api/settings/notify/test` → 桌面通道 → outbox → 泵。
+  **真弹出 Windows toast 脚本抓不到，仍需人眼确认一次。**
+
 **接下来**（按序，一片一 seam）：
-- S4 桌面通知的**设备层**：Electron 主进程轮询 outbox → `Notification` 弹窗 + 未读角标。
-  可测部分抽成注入式 pump（`fetchOutbox` / `show` / `setBadge` 全是注入点），
-  需要给 vitest 的 `include` 加上 `electron/**` 并把测试文件从 `tsconfig.electron.json` 排除；
-  真弹窗只人工验收（验收路径现成：`POST /api/settings/notify/test` → 桌面通道 → outbox → 弹窗）。
-  Windows 角标注意：`app.setBadgeCount` 在 Windows 不生效，得走 `win.setOverlayIcon` 或托盘 tooltip。
 - S6b 静音时段（静音期间命中不丢，只是不弹）+ 快捷键触发静音。
 - S7 事件列表页面（前端，可多开筛选）+ 设置页的通知配置区块。
 - 顺带：22 的遗留提示「屏幕上有实例在跑批，监控可能误判」放这一单做。

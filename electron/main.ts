@@ -1,5 +1,17 @@
-import { app, BrowserWindow, dialog, ipcMain, globalShortcut, shell, screen, Menu, nativeTheme } from 'electron'
+import {
+  app,
+  BrowserWindow,
+  dialog,
+  ipcMain,
+  globalShortcut,
+  shell,
+  screen,
+  Menu,
+  nativeTheme,
+  Notification,
+} from 'electron'
 import type { IpcMainEvent } from 'electron'
+import { createNotifyPump, type OutboxItem } from './notifications'
 import { spawn, ChildProcess } from 'node:child_process'
 import { exec } from 'node:child_process'
 import path from 'node:path'
@@ -338,7 +350,59 @@ async function selectWorkbook(): Promise<string | null> {
   return result.filePaths[0]
 }
 
+/* ── 桌面通知（工单 02 · S4）────────────────────────────────
+ *
+ * 引擎是 sidecar，自己弹不了 Windows 通知；而监控是常驻盯屏的，没人会一直开着窗口等着看。
+ * 所以由**主进程**（跟着应用常驻）定时去引擎的 outbox 取 —— 窗口关了也照样收得到。
+ *
+ * 真弹窗与角标是设备层，只人工验收；「取 → 弹 → 计数」这条链路在 `notifications.ts`，
+ * 四个外部依赖全是注入点，有单测。
+ */
+const CONSOLE_TITLE = 'AutoPlay 控制台'
+
+function startNotifyPump() {
+  const base = `http://127.0.0.1:${ENGINE_PORT}`
+  return createNotifyPump({
+    fetchOutbox: async (since) => {
+      const r = await fetch(`${base}/api/notifications/outbox?since=${since}`)
+      if (!r.ok) throw new Error(`outbox ${r.status}`)
+      return (await r.json()) as { items: OutboxItem[]; cursor: number }
+    },
+    fetchUnread: async () => {
+      const r = await fetch(`${base}/api/hit-events/unread-count`)
+      if (!r.ok) throw new Error(`unread-count ${r.status}`)
+      return ((await r.json()) as { count: number }).count
+    },
+    show: (item) => {
+      const n = new Notification({ title: item.title, body: item.detail || undefined })
+      // 点通知回到控制台：人是从通知过来的，下一步一定是看是哪条命中了
+      n.on('click', () => {
+        if (!consoleWindow) return
+        if (consoleWindow.isMinimized()) consoleWindow.restore()
+        consoleWindow.show()
+        consoleWindow.focus()
+      })
+      n.show()
+    },
+    setBadge: (count) => {
+      // 只在 macOS / Linux 生效；Windows 上没有可用的角标 API
+      // （setBadgeCount 是空操作，做 overlay 或托盘又需要先有图标资源），
+      // 所以 Windows 上把未读数写进窗口标题 —— 任务栏上看得到。
+      app.setBadgeCount(count)
+      if (process.platform === 'win32' && consoleWindow) {
+        consoleWindow.setTitle(count > 0 ? `${CONSOLE_TITLE} · ${count} 条未读` : CONSOLE_TITLE)
+      }
+    },
+    // 引擎刚起来那几秒取不到是常态：静默，下一轮自然就好，绝不能让泵停摆
+    onError: () => {},
+  })
+}
+
+let notifyPump: { stop: () => void } | null = null
+
 app.whenReady().then(() => {
+  // 打包后通知要显示应用名，靠的就是这个 AppUserModelID（开发环境无影响）
+  app.setAppUserModelId('com.autoplay.studio')
   const win = createConsoleWindow()
   // 焦点回到控制台时清掉「最近实例」线索，避免 F9 打到已经不看的那一个
   win.on('focus', () => {
@@ -346,11 +410,13 @@ app.whenReady().then(() => {
   })
 
   startEngine()
+  notifyPump = startNotifyPump()
   Menu.setApplicationMenu(null)
 })
 
 app.on('will-quit', () => {
   globalShortcut.unregisterAll()
+  notifyPump?.stop()
   engineProcess?.kill()
 })
 
