@@ -103,6 +103,7 @@ CREATE TABLE IF NOT EXISTS hit_events (
     similarity  REAL,
     rect        TEXT,                           -- JSON [x,y,w,h] 或 NULL
     notified    TEXT,                           -- JSON：逐通道发送结果 {"desktop":"ok"}
+    is_read     INTEGER NOT NULL DEFAULT 0,     -- 已读标记（托盘角标 / 事件列表页）
     ts          TEXT NOT NULL DEFAULT (datetime('now','localtime'))
 );
 CREATE INDEX IF NOT EXISTS idx_hit_events_instance ON hit_events(instance_id, id);
@@ -167,9 +168,20 @@ def conn() -> sqlite3.Connection:
     return c
 
 
+#: 后加的列：`CREATE TABLE IF NOT EXISTS` 对已经存在的库一个字都不会改，
+#: 所以新列必须显式补。失败就当已经有了（新库由 SCHEMA 直接建好）。
+_MIGRATIONS = (
+    "ALTER TABLE hit_events ADD COLUMN is_read INTEGER NOT NULL DEFAULT 0",
+)
+
 # 导入时先建表（用一条临时连接，之后各线程自建连接）
 _bootstrap = _connect()
 _bootstrap.executescript(SCHEMA)
+for _stmt in _MIGRATIONS:
+    try:
+        _bootstrap.execute(_stmt)
+    except sqlite3.OperationalError:
+        pass
 _bootstrap.commit()
 _bootstrap.close()
 
@@ -222,6 +234,8 @@ NOTIFY_LEVELS = ("info", "warn", "alert")
 DEFAULT_NOTIFY_CONFIG = {
     "channels": {"desktop": True, "webhook": False},
     "routing": {"info": [], "warn": ["desktop"], "alert": ["desktop"]},
+    # 没填地址就是不发：默认别指向任何地方
+    "webhook": {"url": "", "kind": "wecom"},
 }
 
 
@@ -243,6 +257,13 @@ def _merged_notify_config(saved: dict[str, Any]) -> dict[str, Any]:
             wanted = routing.get(level)
             if isinstance(wanted, list):
                 cfg["routing"][level] = [n for n in wanted if n in cfg["channels"]]
+    wh = saved.get("webhook")
+    if isinstance(wh, dict):
+        from .notify.webhook import WEBHOOK_KINDS
+
+        cfg["webhook"]["url"] = str(wh.get("url") or "")
+        if wh.get("kind") in WEBHOOK_KINDS:
+            cfg["webhook"]["kind"] = wh["kind"]
     return cfg
 
 
@@ -270,7 +291,7 @@ def save_notify_config(patch: dict[str, Any]) -> dict[str, Any]:
 
 
 HIT_EVENT_FIELDS = (
-    "id, instance_id, tool, rule_id, matched_by, level, title, detail, similarity, rect, notified, ts"
+    "id, instance_id, tool, rule_id, matched_by, level, title, detail, similarity, rect, notified, is_read, ts"
 )
 
 
@@ -288,6 +309,7 @@ def _hit_payload(r: dict[str, Any]) -> dict[str, Any]:
         "similarity": r["similarity"],
         "rect": json.loads(r["rect"]) if r["rect"] else None,
         "notified": json.loads(r["notified"]) if r["notified"] else {},
+        "read": bool(r["is_read"]),
         "ts": r["ts"],
     }
 
@@ -348,12 +370,37 @@ def set_hit_notified(event_id: int, notified: dict[str, str]) -> None:
         )
 
 
+def mark_hits_read(ids: "list[int] | None" = None) -> int:
+    """标记已读，返回**本次真正被标记**的条数（已经读过的不重复算）。
+
+    不传 ids = 全部标记（按钮就叫「全部标记已读」，是全局的）。
+    条数要排除已读的，否则角标会翻倍。
+    """
+    ids = [int(i) for i in ids] if ids else None
+    with write() as c:
+        if ids:
+            cur = c.execute(
+                "UPDATE hit_events SET is_read=1 WHERE is_read=0 AND id IN (%s)" % ",".join("?" * len(ids)),
+                tuple(ids),
+            )
+        else:
+            cur = c.execute("UPDATE hit_events SET is_read=1 WHERE is_read=0")
+        return int(cur.rowcount or 0)
+
+
+def unread_count() -> int:
+    """未读命中数（跨实例）。托盘角标用这个数。"""
+    rows = query("SELECT COUNT(*) AS n FROM hit_events WHERE is_read=0")
+    return int(rows[0]["n"]) if rows else 0
+
+
 def list_hit_events(
     instance_id: "str | None" = None,
     tool: "str | None" = None,
     level: "str | None" = None,
     limit: int = 200,
     before_id: "int | None" = None,
+    unread_only: bool = False,
 ) -> list[dict[str, Any]]:
     """跨实例检索命中事件（最新在前）。
 
@@ -375,6 +422,8 @@ def list_hit_events(
     if before_id is not None:
         where.append("id<?")
         args.append(int(before_id))
+    if unread_only:
+        where.append("is_read=0")
     sql = f"SELECT {HIT_EVENT_FIELDS} FROM hit_events"
     if where:
         sql += " WHERE " + " AND ".join(where)

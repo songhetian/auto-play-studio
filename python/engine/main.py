@@ -8,7 +8,7 @@ import tempfile
 import uuid
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, UploadFile, File, WebSocket, WebSocketDisconnect, HTTPException
+from fastapi import Depends, FastAPI, UploadFile, File, WebSocket, WebSocketDisconnect, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
@@ -334,6 +334,47 @@ def put_notify(patch: dict):
     return db.save_notify_config(patch)
 
 
+def webhook_poster():
+    """webhook 的真发信器。**测试可覆盖这个依赖**（覆盖必须挂在 `api` 子应用上）。"""
+    from .notify.webhook import post_json
+
+    return post_json
+
+
+@api.post("/settings/notify/test")
+def test_notify(poster=Depends(webhook_poster)):
+    """发一条样例通知，回逐通道结果 —— 让用户当场知道地址填得对不对。
+
+    刻意**绕过级别路由**，走所有启用的通道：它验的是通道本身配得对不对。
+    若受路由约束，用户配了 webhook 却因为 alert 没路由到它而什么都不发，会以为自己填错了。
+
+    失败原因原样回给界面（不抛 500）：用户得知道该改什么。
+    """
+    from .notify import deliver
+    from .notify.model import NotifyPayload
+    from .notify.report import build_channels
+
+    cfg = db.get_notify_config()
+    channels = build_channels(cfg, poster=poster)
+    payload = NotifyPayload(
+        title="测试通知", detail="这是来自 AutoPlay Studio 的测试发送", level="alert", matched_by="test"
+    )
+    return deliver(payload, channels, {payload.level: [c.name for c in channels]})
+
+
+@api.get("/hit-events/unread-count")
+def hit_events_unread_count():
+    """未读命中数：托盘角标与事件列表页的红点用它。"""
+    return {"count": db.unread_count()}
+
+
+@api.post("/hit-events/read")
+def hit_events_mark_read(payload: dict):
+    """标记已读。`ids` 为空 = 全部标记。回本次真正被标记的条数。"""
+    ids = (payload or {}).get("ids") or None
+    return {"marked": db.mark_hits_read(ids)}
+
+
 @api.get("/hit-events")
 def hit_events(
     instanceId: str | None = None,
@@ -341,6 +382,7 @@ def hit_events(
     level: str | None = None,
     limit: int = 200,
     beforeId: int | None = None,
+    unreadOnly: bool = False,
 ):
     """跨实例检索命中事件（最新在前）。
 
@@ -348,7 +390,8 @@ def hit_events(
     `beforeId` 是向后翻页的游标（取上一页最后一条的 id）。
     """
     return db.list_hit_events(
-        instance_id=instanceId, tool=tool, level=level, limit=limit, before_id=beforeId
+        instance_id=instanceId, tool=tool, level=level, limit=limit,
+        before_id=beforeId, unread_only=unreadOnly,
     )
 
 

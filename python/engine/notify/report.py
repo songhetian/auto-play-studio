@@ -67,17 +67,23 @@ def report_hit(
     return event_id
 
 
-def build_channels(cfg: "dict | None" = None) -> list[Channel]:
+def build_channels(cfg: "dict | None" = None, poster=None) -> list[Channel]:
     """按配置构造当前启用的通道。
 
     停用的通道根本不进列表 —— 让「停用」在分发器里靠路由二次判断，
-    等于同一件事两块开关。
+    等于同一件事两块开关。webhook 启用了却没填地址也不进列表：
+    否则每次命中都往库里记一条「地址没填」的失败，真正的失败反而被淹掉。
     """
     from .desktop import DesktopChannel
+    from .webhook import WebhookChannel
 
     cfg = cfg if cfg is not None else db.get_notify_config()
     enabled = cfg.get("channels", {})
     out: list[Channel] = []
     if enabled.get("desktop"):
         out.append(DesktopChannel())
+    if enabled.get("webhook"):
+        wh = cfg.get("webhook") or {}
+        if wh.get("url"):
+            out.append(WebhookChannel(url=wh["url"], kind=wh.get("kind", "wecom"), poster=poster))
     return out

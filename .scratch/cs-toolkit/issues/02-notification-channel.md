@@ -98,11 +98,35 @@ seam = `deliver(payload, channels, routing)`，返回 `{通道名: 'ok' | 'fail:
   `GET /api/notifications/outbox?since=` 取走并真弹（窗口关了也收得到）。
 - 声音**不做成全局通道**：monitor 已有实例级 `alertSound`，同一件事两块开关是假字段。
 
+**S6a ✅ 未读标记**（`tests/test_hit_events_unread.py`，5 例）
+`hit_events` 加 `is_read`；`list_hit_events(unread_only=)` / `mark_hits_read(ids=None)` /
+`unread_count()`；`GET /api/hit-events/unread-count` + `POST /api/hit-events/read`。
+两条规矩：新事件默认未读（记录了却算已读 = 走开一趟回来什么都看不到）；
+「全部标记已读」返回**本次真正被标记**的条数（已读的不重复算，否则角标翻倍）。
+提前做是因为它是 S4 未读角标与 S7 事件列表页共用的地基。
+**这是本单第一次真正的 schema 迁移**：`CREATE TABLE IF NOT EXISTS` 对已存在的库一字不改，
+所以 `db.py` 加了 `_MIGRATIONS`（`ALTER TABLE ... ADD COLUMN`，失败即视为已有）。
+
+**S5 ✅ IM 机器人 webhook**（`tests/test_notify_webhook.py`，11 例）
+- `engine/notify/webhook.py`：`build_webhook_body(kind, payload)` 是独立 seam ——
+  三家消息结构对外是硬契约（发错结构对方直接不显示且不报错），期望值按各家公开文档手写。
+  企微 `{msgtype:markdown, markdown:{content}}` / 钉钉 `{msgtype:markdown, markdown:{title,text}, at:{isAtAll:false}}` /
+  飞书 `{msg_type:text, content:{text}}`（**不加 `**`，飞书 text 不认 markdown**）。
+  不认识的类型直接报错：宁可发不出去，也不发一堆对方解析不了的东西。
+  发信用 stdlib `urllib` 而不是 requests —— 引擎要打成 sidecar，少一个三方依赖就少一处 hidden-import 的坑。
+- 配置：`webhook.url` / `webhook.kind`；**启用但没填地址时不构造通道**（否则每次命中都记一条
+  「地址没填」的失败，真正的失败会被淹掉）。
+- 「测试发送」`POST /api/settings/notify/test`：**刻意绕过级别路由**，走所有启用的通道 ——
+  它验的是通道本身配得对不对；受路由约束的话，用户配了 webhook 却因 alert 没路由到它而什么都不发，
+  会以为自己填错了。失败原因原样回界面（不抛 500）。真发信器走 `Depends(webhook_poster)`，测试可覆盖
+  （**依赖覆盖必须挂在 `api` 子应用上**）。
+
 **接下来**（按序，一片一 seam）：
-- S4 桌面通知的**设备层**：Electron 主进程轮询 outbox → `Notification` 弹窗 + 托盘角标
-  —— 只人工验收（引擎侧已在 S3 测完）。
-- S5 IM webhook 通道（企微/钉钉/飞书），可「测试发送」（webhook URL 这时才进配置）。
-- S5 IM webhook 通道（企微/钉钉/飞书），可「测试发送」。
-- S6 静音时段 + 未读/全部已读。
-- S7 事件列表页面（前端，可多开筛选）。
+- S4 桌面通知的**设备层**：Electron 主进程轮询 outbox → `Notification` 弹窗 + 未读角标。
+  可测部分抽成注入式 pump（`fetchOutbox` / `show` / `setBadge` 全是注入点），
+  需要给 vitest 的 `include` 加上 `electron/**` 并把测试文件从 `tsconfig.electron.json` 排除；
+  真弹窗只人工验收（验收路径现成：`POST /api/settings/notify/test` → 桌面通道 → outbox → 弹窗）。
+  Windows 角标注意：`app.setBadgeCount` 在 Windows 不生效，得走 `win.setOverlayIcon` 或托盘 tooltip。
+- S6b 静音时段（静音期间命中不丢，只是不弹）+ 快捷键触发静音。
+- S7 事件列表页面（前端，可多开筛选）+ 设置页的通知配置区块。
 - 顺带：22 的遗留提示「屏幕上有实例在跑批，监控可能误判」放这一单做。
