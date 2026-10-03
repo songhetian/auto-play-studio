@@ -15,6 +15,7 @@ from pydantic import BaseModel
 from . import db
 from . import excel
 from . import image_routes
+from . import plans
 from . import recovery
 from . import screen_lock
 from . import summary
@@ -148,6 +149,8 @@ DEFAULT_CONFIG: dict[str, dict] = {
 class CreatePayload(BaseModel):
     name: str
     tool: str
+    #: 从哪个方案起手。方案只是「把配置拷一份过来」，之后与实例互不影响。
+    planId: str | None = None
 
 
 @api.get("/instances")
@@ -177,9 +180,10 @@ def recover_instances_endpoint():
     引擎启动时已自动跑过一次；这个端点给前端在「重新同步状态」时调用，
     也能在测试里直接验证对账结果。
     """
-    plans = recovery.recover_on_startup()
+    # 局部变量不能叫 plans：它会在整个函数里盖掉同名的方案模块
+    restored = recovery.recover_on_startup()
     return {
-        "recovered": len(plans),
+        "recovered": len(restored),
         "plans": [
             {
                 "id": p.instance_id,
@@ -189,7 +193,7 @@ def recover_instances_endpoint():
                 "done": p.progress_done,
                 "total": p.progress_total,
             }
-            for p in plans
+            for p in restored
         ],
     }
 
@@ -197,9 +201,10 @@ def recover_instances_endpoint():
 @api.get("/instances/recovery")
 def recovery_summary_endpoint():
     """返回引擎启动时那次崩溃恢复的结果，供前端在控制台展示「已恢复 N 个被中断实例」。"""
-    plans = recovery.recent_recoveries()
+    # 局部变量不能叫 plans：它会在整个函数里盖掉同名的方案模块
+    restored = recovery.recent_recoveries()
     return {
-        "recovered": len(plans),
+        "recovered": len(restored),
         "plans": [
             {
                 "id": p.instance_id,
@@ -209,22 +214,34 @@ def recovery_summary_endpoint():
                 "done": p.progress_done,
                 "total": p.progress_total,
             }
-            for p in plans
+            for p in restored
         ],
     }
 
 
 @api.post("/instances")
 def create_instance(p: CreatePayload):
+    config = DEFAULT_CONFIG.get(p.tool, {})
+    if p.planId:
+        found = plans.get_plan(p.planId)
+        if not found:
+            raise HTTPException(404, "方案不存在")
+        if found["tool"] != p.tool:
+            raise HTTPException(
+                400, f"方案「{found['name']}」是 {found['tool']} 的配置，套不到 {p.tool} 实例上"
+            )
+        # 以默认配置为底：方案可以只写关心的那几项，缺的由默认值补齐
+        config = plans.deep_merge(config, found["config"])
+
     iid = f"{p.tool[:1].upper()}{uuid.uuid4().hex[:4]}"
     with db.write() as c:
         c.execute(
             "INSERT INTO instances(id, tool, name, config_json) VALUES (?,?,?,?)",
-            (iid, p.tool, p.name, json.dumps(DEFAULT_CONFIG.get(p.tool, {}), ensure_ascii=False)),
+            (iid, p.tool, p.name, json.dumps(config, ensure_ascii=False)),
         )
     db.log(iid, f"实例已创建：{p.name}")
     return {"id": iid, "name": p.name, "tool": p.tool, "status": "idle", "done": 0, "total": 0,
-            "config": DEFAULT_CONFIG.get(p.tool, {})}
+            "config": config}
 
 
 @api.put("/instances/{iid}/config")
@@ -443,6 +460,57 @@ async def upload_excel(iid: str, file: UploadFile = File(...)):
     db.save_config(iid, cfg)
     db.log(iid, f"已读取 {file.filename} · 自动识别 {len(columns)} 列 / {rows} 行")
     return {"columns": columns, "rows": rows, "path": dst, "sample": sample}
+
+
+# ── 方案（配置模板）──────────────────────────────────────────
+# 方案是「配置模板层」，实例是「运行主体层」：全局存一份，跨工具、跨实例复用。
+# 它跟实例只接触一次 —— 「新建实例时套一份过来」，之后互不影响（见 create_instance）。
+
+
+class PlanCreate(BaseModel):
+    tool: str
+    name: str
+    config: dict = {}
+
+
+class PlanPatch(BaseModel):
+    name: str | None = None
+    config: dict | None = None
+
+
+@api.get("/plans")
+def list_plans_endpoint(tool: str | None = None):
+    return plans.list_plans(tool)
+
+
+@api.post("/plans")
+def create_plan_endpoint(p: PlanCreate):
+    # 方案挂在工具上：工具号不存在的话，新建实例时这个方案谁都套不上，当场拦掉
+    if p.tool not in DEFAULT_CONFIG:
+        raise HTTPException(400, f"未知工具：{p.tool}")
+    return {"id": plans.create_plan(p.tool, p.name, p.config)}
+
+
+@api.get("/plans/{pid}")
+def read_plan_endpoint(pid: str):
+    found = plans.get_plan(pid)
+    if not found:
+        raise HTTPException(404, "方案不存在")
+    return found
+
+
+@api.patch("/plans/{pid}")
+def patch_plan_endpoint(pid: str, p: PlanPatch):
+    if not plans.update_plan(pid, name=p.name, config=p.config):
+        raise HTTPException(404, "方案不存在")
+    return plans.get_plan(pid)
+
+
+@api.delete("/plans/{pid}")
+def remove_plan_endpoint(pid: str):
+    if not plans.delete_plan(pid):
+        raise HTTPException(404, "方案不存在")
+    return {"ok": True}
 
 
 @api.websocket("/ws/instances/{iid}/logs")

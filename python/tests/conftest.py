@@ -33,7 +33,7 @@ def _fresh_db():
     """固定一个测试库，每会话开始时清空表（不删文件，避免每次运行都多出一个 db）。"""
     with db.write() as c:
         # settings 是全局一行（通知配置），漏了它上一个文件留下的值会污染后面所有文件
-        for t in ("instances", "runs", "rows", "logs", "waybill_cache", "image_assets", "hit_events", "settings"):
+        for t in ("instances", "runs", "rows", "logs", "waybill_cache", "image_assets", "hit_events", "settings", "plans"):
             c.execute(f"DELETE FROM {t}")
     yield
 

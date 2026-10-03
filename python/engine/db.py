@@ -109,6 +109,20 @@ CREATE TABLE IF NOT EXISTS hit_events (
 CREATE INDEX IF NOT EXISTS idx_hit_events_instance ON hit_events(instance_id, id);
 CREATE INDEX IF NOT EXISTS idx_hit_events_level ON hit_events(level, id);
 
+-- 方案（plans）：可复用的配置模板，见 engine/plans.py。
+-- 它跟实例没有引用关系：方案是「配置模板层」，实例是「运行主体层」，
+-- 删实例方案还在，改实例方案不变 —— 唯一联系人是「新建实例时套一份过来」。
+-- （以前方案只是 cmp 的一个按钮，存在 uploads/<iid>/ 下，删实例就没了。）
+CREATE TABLE IF NOT EXISTS plans (
+    id          TEXT PRIMARY KEY,
+    tool        TEXT NOT NULL,
+    name        TEXT NOT NULL,
+    config_json TEXT NOT NULL DEFAULT '{}',
+    created_at  TEXT NOT NULL DEFAULT (datetime('now','localtime')),
+    updated_at  TEXT NOT NULL DEFAULT (datetime('now','localtime'))
+);
+CREATE INDEX IF NOT EXISTS idx_plans_tool ON plans(tool);
+
 -- 知识库（kb）：文件夹登记 / 文档 / 段落 / 搜索历史（见 engine/kb/）
 -- 段落单独成表而不是塞进文档行：搜索命中后要按 doc 取片段，
 -- 而建索引时又只需要一遍扫过去，两件事都靠这张表的一个索引搞定。
