@@ -47,14 +47,14 @@ export default function InstancesPage() {
   const filtered = kw.trim().length > 0 || tool !== ALL
 
   return (
-    <div className="mx-auto max-w-[1240px] space-y-4 p-5">
+    <div className="mx-auto max-w-[1240px] space-y-5 p-5">
       <PageHeader
         icon="instances"
         title="实例管理"
         desc="按工具或名称检索；每个实例独立窗口运行，互不影响"
         actions={
           <>
-            <span className="text-[12px] text-muted-foreground">
+            <span className="text-sm text-muted-foreground">
               {filtered ? `${list.length} / ${total}` : `共 ${total}`} 个
             </span>
             {TOOLS.map((t) => (

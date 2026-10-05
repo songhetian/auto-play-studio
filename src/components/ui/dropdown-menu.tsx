@@ -18,7 +18,7 @@ const menuSurface = cn(
 )
 
 const itemBase = cn(
-  'relative flex cursor-default select-none items-center gap-2 rounded-md px-2 py-1.5 text-[13px] outline-none transition-colors',
+  'relative flex cursor-default select-none items-center gap-2 rounded-md px-2 py-1.5 text-base outline-none transition-colors',
   'focus:bg-accent focus:text-accent-foreground',
   'data-[disabled]:pointer-events-none data-[disabled]:opacity-50',
   '[&_svg]:size-3.5 [&_svg]:shrink-0 [&_svg]:text-muted-foreground',
@@ -125,7 +125,7 @@ const DropdownMenuLabel = React.forwardRef<
 >(({ className, inset, ...props }, ref) => (
   <DropdownMenuPrimitive.Label
     ref={ref}
-    className={cn('px-2 py-1.5 text-[11.5px] font-medium text-muted-foreground', inset && 'pl-8', className)}
+    className={cn('px-2 py-1.5 text-xs font-medium text-muted-foreground', inset && 'pl-8', className)}
     {...props}
   />
 ))
@@ -140,7 +140,7 @@ const DropdownMenuSeparator = React.forwardRef<
 DropdownMenuSeparator.displayName = DropdownMenuPrimitive.Separator.displayName
 
 function DropdownMenuShortcut({ className, ...props }: React.HTMLAttributes<HTMLSpanElement>) {
-  return <span className={cn('ml-auto font-mono text-[11px] tracking-widest text-muted-foreground', className)} {...props} />
+  return <span className={cn('ml-auto font-mono text-xs tracking-widest text-muted-foreground', className)} {...props} />
 }
 
 export {

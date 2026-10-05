@@ -4,14 +4,16 @@ import { cn } from '@/lib/utils'
 const Table = React.forwardRef<HTMLTableElement, React.HTMLAttributes<HTMLTableElement>>(
   ({ className, ...props }, ref) => (
     <div className="relative w-full overflow-x-auto">
-      <table ref={ref} className={cn('w-full caption-bottom border-collapse text-[13px]', className)} {...props} />
+      <table ref={ref} className={cn('w-full caption-bottom border-collapse text-base', className)} {...props} />
     </div>
   ),
 )
 Table.displayName = 'Table'
 
 const TableHeader = React.forwardRef<HTMLTableSectionElement, React.HTMLAttributes<HTMLTableSectionElement>>(
-  ({ className, ...props }, ref) => <thead ref={ref} className={cn('[&_tr]:border-b [&_tr]:border-border', className)} {...props} />,
+  ({ className, ...props }, ref) => (
+    <thead ref={ref} className={cn('bg-muted/50 [&_tr]:border-b [&_tr]:border-border', className)} {...props} />
+  ),
 )
 TableHeader.displayName = 'TableHeader'
 
@@ -31,7 +33,10 @@ const TableRow = React.forwardRef<HTMLTableRowElement, React.HTMLAttributes<HTML
   ({ className, ...props }, ref) => (
     <tr
       ref={ref}
-      className={cn('border-b border-border transition-colors hover:bg-muted/45 data-[state=selected]:bg-muted', className)}
+      className={cn(
+        'border-b border-border transition-colors hover:bg-muted/45 data-[state=selected]:bg-muted',
+        className,
+      )}
       {...props}
     />
   ),
@@ -43,7 +48,7 @@ const TableHead = React.forwardRef<HTMLTableCellElement, React.ThHTMLAttributes<
     <th
       ref={ref}
       className={cn(
-        'h-9 px-3.5 text-left align-middle text-[12px] font-medium whitespace-nowrap text-muted-foreground',
+        'h-9 px-3.5 text-left align-middle text-sm font-medium whitespace-nowrap text-muted-foreground',
         className,
       )}
       {...props}
@@ -59,7 +64,7 @@ TableCell.displayName = 'TableCell'
 
 const TableCaption = React.forwardRef<HTMLTableCaptionElement, React.HTMLAttributes<HTMLTableCaptionElement>>(
   ({ className, ...props }, ref) => (
-    <caption ref={ref} className={cn('mt-3 text-[12.5px] text-muted-foreground', className)} {...props} />
+    <caption ref={ref} className={cn('mt-3 text-sm text-muted-foreground', className)} {...props} />
   ),
 )
 TableCaption.displayName = 'TableCaption'

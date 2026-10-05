@@ -67,6 +67,17 @@ export default {
         sans: ['-apple-system', 'BlinkMacSystemFont', 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', 'sans-serif'],
         mono: ['Cascadia Code', 'Consolas', 'monospace'],
       },
+      // 全站字号梯度。之前字面量里散落 text-[11.5px] / text-[13px] 之类的任意值，
+      // 收敛到这几档（默认档位此前无人使用，覆写它们不会影响存量样式）。
+      fontSize: {
+        '2xs': '10.5px', // 极小标记：徽标数字、快捷键角标
+        xs: '11.5px', // 辅助说明、次要列
+        sm: '12.5px', // 次要正文
+        base: '13.5px', // 正文
+        md: '14px', // 强调正文 / 卡片标题
+        lg: '16px', // 区块标题
+        xl: '24px', // 页面大数字
+      },
       keyframes: {
         'fade-up': { from: { opacity: '0', transform: 'translateY(6px)' }, to: { opacity: '1', transform: 'translateY(0)' } },
       },

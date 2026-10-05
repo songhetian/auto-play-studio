@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -23,9 +23,18 @@ import { Icon } from '@/components/icon'
 import { EmptyState } from '@/components/blocks/empty-state'
 import { PageHeader } from '@/components/blocks/page-header'
 import { api } from '@/lib/api'
+import { snapshotUrlOf } from '@/lib/hitSnapshot'
 import { useInstanceStore } from '@/stores/instanceStore'
 import { useInstances } from '@/modules/console/useInstances'
-import { matchedByLabel, notifiedHasIssue, notifiedText, type HitEvent } from '@/lib/hitEvents'
+import {
+  DISPOSITION_LABEL,
+  dispositionOf,
+  matchedByLabel,
+  notifiedHasIssue,
+  notifiedText,
+  type Disposition,
+  type HitEvent,
+} from '@/lib/hitEvents'
 
 const ALL = 'all'
 const PAGE = 20
@@ -35,6 +44,13 @@ const LEVEL_VARIANT: Record<string, 'secondary' | 'warning' | 'destructive'> = {
   info: 'secondary',
   warn: 'warning',
   alert: 'destructive',
+}
+
+/** 处置态配色：已确认用主色（安心），未确认超时用警示红（漏看要显眼），待确认保持中性 */
+const DISPOSITION_VARIANT: Record<Disposition, 'default' | 'secondary' | 'destructive'> = {
+  acknowledged: 'default',
+  pending: 'secondary',
+  timeout: 'destructive',
 }
 
 /**
@@ -71,12 +87,31 @@ export default function HitEventsPage() {
   })
   const unread = useQuery({ queryKey: ['hit-unread'], queryFn: api.hitUnreadCount })
 
+  /** 每 30 秒走一次钟：「未确认超时」是推算出来的，没有它页面在停留期间不会自己变 */
+  const [now, setNow] = useState(() => Date.now())
+  useEffect(() => {
+    const t = window.setInterval(() => setNow(Date.now()), 30_000)
+    return () => window.clearInterval(t)
+  }, [])
+
+  const refreshHits = () => {
+    qc.invalidateQueries({ queryKey: ['hit-events'] })
+    qc.invalidateQueries({ queryKey: ['hit-unread'] })
+  }
+
   const markAll = useMutation({
     mutationFn: () => api.markHitsRead([]),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['hit-events'] })
-      qc.invalidateQueries({ queryKey: ['hit-unread'] })
-    },
+    onSuccess: refreshHits,
+  })
+
+  /** 确认 = 闭环：记「已处理」并顺带清掉未读（后端一并做了） */
+  const ackOne = useMutation({
+    mutationFn: (ids: number[]) => api.ackHits(ids),
+    onSuccess: refreshHits,
+  })
+  const ackAll = useMutation({
+    mutationFn: () => api.ackHits([]),
+    onSuccess: refreshHits,
   })
 
   const events = query.data ?? []
@@ -99,16 +134,26 @@ export default function HitEventsPage() {
   }
 
   return (
-    <div className="mx-auto max-w-[1240px] space-y-4 p-5">
+    <div className="mx-auto max-w-[1240px] space-y-5 p-5">
       <PageHeader
         icon="bell"
         title="命中事件"
         desc="所有工具的命中记录，跨实例可检索；通知发没发出去、为什么没发出去，都写在每一条上"
         actions={
           <>
-            <span className="text-[12px] text-muted-foreground">
+            <span className="text-sm text-muted-foreground">
               未读 {unread.data?.count ?? 0} 条
             </span>
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={ackAll.isPending}
+              onClick={() => ackAll.mutate()}
+              title="把所有还没确认的命中一次确认掉（跨实例）"
+            >
+              <Icon name="check" size={14} />
+              全部确认
+            </Button>
             <Button
               size="sm"
               variant="outline"
@@ -124,7 +169,7 @@ export default function HitEventsPage() {
 
       <Card>
         <CardHeader>
-          <CardTitle className="flex items-center gap-2 text-[14px]">
+          <CardTitle className="flex items-center gap-2 text-md">
             <Icon name="filter" size={14} className="text-muted-foreground" />
             筛选
           </CardTitle>
@@ -175,7 +220,7 @@ export default function HitEventsPage() {
             </SelectContent>
           </Select>
 
-          <label className="flex items-center gap-2 text-[12.5px] text-muted-foreground">
+          <label className="flex items-center gap-2 text-sm text-muted-foreground">
             <Switch checked={unreadOnly} onCheckedChange={(v) => changeFilter(() => setUnreadOnly(v))} />
             仅未读
           </label>
@@ -191,7 +236,7 @@ export default function HitEventsPage() {
       <Card>
         <CardContent className="p-0">
           {query.isPending ? (
-            <p className="p-5 text-[12.5px] text-muted-foreground">正在读取命中事件…</p>
+            <p className="p-5 text-sm text-muted-foreground">正在读取命中事件…</p>
           ) : events.length === 0 ? (
             <EmptyState
               icon="bell"
@@ -211,26 +256,45 @@ export default function HitEventsPage() {
                   <TableHead className="w-[150px]">实例</TableHead>
                   <TableHead className="w-[100px]">命中方式</TableHead>
                   <TableHead className="w-[90px]">级别</TableHead>
+                  <TableHead className="w-[140px]">处置</TableHead>
                   <TableHead>通知</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {events.map((e: HitEvent) => (
+                {events.map((e: HitEvent) => {
+                  const d = dispositionOf(e, now)
+                  return (
                   <TableRow key={e.id} className={e.read ? '' : 'bg-primary/[0.04]'}>
-                    <TableCell className="text-[12px] text-muted-foreground">{e.ts}</TableCell>
+                    <TableCell className="text-sm text-muted-foreground">{e.ts}</TableCell>
                     <TableCell>
                       <div className="flex items-center gap-2">
+                        {/* 命中快照：回溯历史时最需要它 —— 只有文字没法判断当时到底命中了什么 */}
+                        {snapshotUrlOf(e.snapshot) && (
+                          <a
+                            href={snapshotUrlOf(e.snapshot)}
+                            target="_blank"
+                            rel="noreferrer"
+                            title="查看命中画面"
+                            className="flex-none overflow-hidden rounded border border-border"
+                          >
+                            <img
+                              src={snapshotUrlOf(e.snapshot)}
+                              alt="命中画面"
+                              className="h-9 w-12 object-cover"
+                            />
+                          </a>
+                        )}
                         {!e.read && <Badge variant="default">未读</Badge>}
-                        <span className="text-[13px] font-medium">{e.title}</span>
+                        <span className="text-base font-medium">{e.title}</span>
                       </div>
                       {e.detail && (
-                        <p className="mt-0.5 text-[12px] text-muted-foreground">{e.detail}</p>
+                        <p className="mt-0.5 text-sm text-muted-foreground">{e.detail}</p>
                       )}
                     </TableCell>
-                    <TableCell className="text-[12.5px]">
+                    <TableCell className="text-sm">
                       {nameOf.get(e.instanceId) ?? e.instanceId}
                     </TableCell>
-                    <TableCell className="text-[12.5px] text-muted-foreground">
+                    <TableCell className="text-sm text-muted-foreground">
                       {matchedByLabel(e.matchedBy)}
                     </TableCell>
                     <TableCell>
@@ -238,15 +302,36 @@ export default function HitEventsPage() {
                         {LEVEL_LABEL[e.level] ?? e.level}
                       </Badge>
                     </TableCell>
+                    <TableCell>
+                      <div className="flex items-center gap-2">
+                        <Badge
+                          variant={DISPOSITION_VARIANT[d]}
+                          title={e.ackAt ? `确认于 ${e.ackAt}` : '还没人确认这条告警'}
+                        >
+                          {DISPOSITION_LABEL[d]}
+                        </Badge>
+                        {d !== 'acknowledged' && (
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            disabled={ackOne.isPending}
+                            onClick={() => ackOne.mutate([e.id])}
+                          >
+                            确认
+                          </Button>
+                        )}
+                      </div>
+                    </TableCell>
                     <TableCell
-                      className={`text-[12.5px] ${
+                      className={`text-sm ${
                         notifiedHasIssue(e.notified) ? 'text-warning' : 'text-muted-foreground'
                       }`}
                     >
                       {notifiedText(e.notified)}
                     </TableCell>
                   </TableRow>
-                ))}
+                  )
+                })}
               </TableBody>
             </Table>
           )}
@@ -258,7 +343,7 @@ export default function HitEventsPage() {
           <Icon name="chevronLeft" size={14} />
           上一页
         </Button>
-        <span className="text-[12px] text-muted-foreground">
+        <span className="text-sm text-muted-foreground">
           第 {cursors.length + 1} 页 · 每页 {PAGE} 条
         </span>
         <Button size="sm" variant="outline" disabled={events.length < PAGE} onClick={goNext}>

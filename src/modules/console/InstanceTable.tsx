@@ -1,16 +1,19 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { toolById } from '@/app/moduleRegistry'
 import type { Instance } from '@/schemas/instance'
 import { cn } from '@/lib/utils'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
 import { Progress } from '@/components/ui/progress'
 import { Separator } from '@/components/ui/separator'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Icon } from '@/components/icon'
 import { ConfirmDialog } from '@/components/blocks/confirm-dialog'
-import { STATUS_TEXT, statusTone } from '@/modules/console/instanceStatus'
-import { openInstanceWindow, useInstanceActions } from '@/modules/console/useInstanceActions'
+import { STATUS_TEXT, isLive, statusTone } from '@/modules/console/instanceStatus'
+import { useInstanceActions, useOpenInstanceWindow } from '@/modules/console/useInstanceActions'
+import { useInstanceControl } from '@/modules/console/useInstanceControl'
+import { useRename } from '@/modules/console/useRename'
 
 const TONE_VARIANT = {
   ok: 'success',
@@ -34,7 +37,11 @@ export function InstanceTable({
   showTool?: boolean
 }) {
   const { clone, remove } = useInstanceActions()
+  const control = useInstanceControl()
+  const rename = useRename()
+  const openWindow = useOpenInstanceWindow()
   const [pendingDelete, setPendingDelete] = useState<Instance | null>(null)
+  const [editingId, setEditingId] = useState<string | null>(null)
 
   if (!list.length) return null
 
@@ -56,8 +63,44 @@ export function InstanceTable({
             return (
               <TableRow key={i.id}>
                 <TableCell>
-                  <div className="font-medium">{i.name}</div>
-                  <div className="mt-0.5 font-mono text-[11.5px] text-muted-foreground">{i.id}</div>
+                  {editingId === i.id ? (
+                    <InlineRename
+                      initial={i.name}
+                      pending={rename.isPending}
+                      onCancel={() => setEditingId(null)}
+                      onSubmit={(name) => {
+                        rename.mutate(
+                          { id: i.id, name },
+                          { onSettled: () => setEditingId(null) },
+                        )
+                      }}
+                    />
+                  ) : (
+                    <>
+                      <div className="flex items-center gap-1">
+                        <button
+                          type="button"
+                          onClick={() => void openWindow(i, 'run')}
+                          title="打开运行详情"
+                          className="truncate text-left font-medium text-foreground transition-colors hover:text-primary"
+                        >
+                          {i.name}
+                        </button>
+                        {/* 名字点铅笔就能改：实例名是用户自己起的，不该只能删掉重建 */}
+                        <Button
+                          variant="ghost"
+                          size="icon-sm"
+                          className="size-5 flex-none text-muted-foreground/70 hover:text-primary"
+                          title="改名"
+                          aria-label={`给实例 ${i.name} 改名`}
+                          onClick={() => setEditingId(i.id)}
+                        >
+                          <Icon name="pencil" size={12} />
+                        </Button>
+                      </div>
+                      <div className="mt-0.5 font-mono text-xs text-muted-foreground">{i.id}</div>
+                    </>
+                  )}
                 </TableCell>
                 {showTool && (
                   <TableCell>
@@ -86,7 +129,7 @@ export function InstanceTable({
                 <TableCell>
                   {i.total ? (
                     <div className="space-y-1.5">
-                      <div className="flex items-center gap-2 font-mono text-[11.5px] text-muted-foreground">
+                      <div className="flex items-center gap-2 font-mono text-xs text-muted-foreground">
                         <span className="tabular-nums">
                           {i.done} / {i.total}
                         </span>
@@ -99,16 +142,30 @@ export function InstanceTable({
                   )}
                 </TableCell>
                 <TableCell>
-                  <div className="flex items-center justify-end gap-0.5 whitespace-nowrap">
-                    <Button variant="ghost" size="sm" onClick={() => openInstanceWindow(i, 'run')}>
-                      <Icon name="activity" size={13} />
-                      运行
-                    </Button>
-                    <Button variant="ghost" size="sm" onClick={() => openInstanceWindow(i, 'config')}>
+                  <div className="flex items-center justify-end gap-1 whitespace-nowrap">
+                    <InstanceControlButton inst={i} control={control} />
+                    {isLive(i.status) && i.status !== 'starting' && i.status !== 'stopping' && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => control.mutate({ id: i.id, action: 'stop' })}
+                        disabled={control.isPending}
+                        title="停止当前这一轮"
+                      >
+                        <Icon name="stop" size={13} />
+                        停止
+                      </Button>
+                    )}
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => void openWindow(i, 'config')}
+                      title="打开实例配置"
+                    >
                       <Icon name="sliders" size={13} />
                       配置
                     </Button>
-                    <Separator orientation="vertical" className="mx-1 h-4" />
+                    <Separator orientation="vertical" className="mx-0.5 h-4" />
                     <Button
                       variant="ghost"
                       size="icon-sm"
@@ -140,8 +197,7 @@ export function InstanceTable({
       <ConfirmDialog
         open={!!pendingDelete}
         onOpenChange={(v) => !v && setPendingDelete(null)}
-        icon="trash"
-        destructive
+        action="delete"
         title={`删除实例「${pendingDelete?.name ?? ''}」？`}
         desc="实例的配置与运行记录会一起删除，该操作不可撤销。"
         confirmText="删除"
@@ -152,5 +208,128 @@ export function InstanceTable({
         }}
       />
     </>
+  )
+}
+
+/**
+ * 行内改名输入框。
+ *
+ * Enter 提交 / Esc 取消 / 失焦提交 —— 三个都要有：用户改名字时十有八九是随手敲完
+ * 就想看结果，不该还要特意去点某个按钮。只在名字真的变了时才提交，空提交直接取消。
+ */
+function InlineRename({
+  initial,
+  pending,
+  onSubmit,
+  onCancel,
+}: {
+  initial: string
+  pending: boolean
+  onSubmit: (name: string) => void
+  onCancel: () => void
+}) {
+  const [value, setValue] = useState(initial)
+  const doneRef = useRef(false)
+
+  const commit = () => {
+    // blur 与 Enter 可能连着触发，提交一次就够了
+    if (doneRef.current) return
+    const next = value.trim()
+    if (!next || next === initial) {
+      doneRef.current = true
+      onCancel()
+      return
+    }
+    doneRef.current = true
+    onSubmit(next)
+  }
+
+  return (
+    <div className="flex items-center gap-1">
+      <Input
+        autoFocus
+        value={value}
+        maxLength={60}
+        disabled={pending}
+        aria-label="实例新名字"
+        onChange={(e) => setValue(e.target.value)}
+        onBlur={commit}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') {
+            e.preventDefault()
+            commit()
+          } else if (e.key === 'Escape') {
+            e.preventDefault()
+            doneRef.current = true
+            onCancel()
+          }
+        }}
+      />
+    </div>
+  )
+}
+
+/**
+ * 行内主控制按钮：按状态变脸，免得用户点进实例窗口才能开始 / 暂停 / 继续。
+ * 启动中 / 停止中这类瞬时态禁用，避免重复下发。
+ */
+function InstanceControlButton({
+  inst,
+  control,
+}: {
+  inst: Instance
+  control: ReturnType<typeof useInstanceControl>
+}) {
+  const { status, id } = inst
+  const busy = status === 'starting' || status === 'stopping'
+
+  if (busy) {
+    return (
+      <Button variant="ghost" size="sm" disabled title={STATUS_TEXT[status]}>
+        <Icon name="refresh" size={13} className="animate-spin" />
+        {STATUS_TEXT[status]}
+      </Button>
+    )
+  }
+  if (status === 'running') {
+    return (
+      <Button
+        variant="default"
+        size="sm"
+        onClick={() => control.mutate({ id, action: 'pause' })}
+        disabled={control.isPending}
+        title="暂停（F9）"
+      >
+        <Icon name="pause" size={13} />
+        暂停
+      </Button>
+    )
+  }
+  if (status === 'paused') {
+    return (
+      <Button
+        variant="default"
+        size="sm"
+        onClick={() => control.mutate({ id, action: 'resume' })}
+        disabled={control.isPending}
+        title="继续（F9）"
+      >
+        <Icon name="play" size={13} />
+        继续
+      </Button>
+    )
+  }
+  // idle / completed / error：开始
+  return (
+    <Button
+      variant="default"
+      size="sm"
+      onClick={() => control.mutate({ id, action: 'start' })}
+      disabled={control.isPending}
+      title="开始执行（F8）"
+    >
+      <Icon name="play" size={13} />
+      开始
+    </Button>
   )
 }

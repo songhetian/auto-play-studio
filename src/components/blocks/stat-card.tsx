@@ -9,8 +9,8 @@ type Tone = 'default' | 'ok' | 'warn' | 'err' | 'brand'
 
 const TONE: Record<Tone, { value: string; chip: string }> = {
   default: { value: 'text-foreground', chip: 'bg-muted text-muted-foreground' },
-  ok: { value: 'text-[hsl(var(--ok))]', chip: 'bg-[hsl(var(--ok)/0.12)] text-[hsl(var(--ok))]' },
-  warn: { value: 'text-[hsl(var(--warn))]', chip: 'bg-[hsl(var(--warn)/0.14)] text-[hsl(var(--warn))]' },
+  ok: { value: 'text-ok', chip: 'bg-ok/12 text-ok' },
+  warn: { value: 'text-warn', chip: 'bg-warn/14 text-warn' },
   err: { value: 'text-destructive', chip: 'bg-destructive/10 text-destructive' },
   brand: { value: 'text-primary', chip: 'bg-primary/10 text-primary' },
 }
@@ -42,10 +42,10 @@ export function StatCard({
               <Icon name={icon} size={13} />
             </span>
           )}
-          <span className="text-[12px] text-muted-foreground">{label}</span>
+          <span className="text-sm text-muted-foreground">{label}</span>
         </div>
-        <div className={cn('mt-2.5 font-mono text-[24px] leading-none tracking-tight tabular-nums', t.value)}>{value}</div>
-        {hint && <div className="mt-1.5 text-[11.5px] leading-relaxed text-muted-foreground">{hint}</div>}
+        <div className={cn('mt-2.5 font-mono text-xl leading-none tracking-tight tabular-nums', t.value)}>{value}</div>
+        {hint && <div className="mt-1.5 text-xs leading-relaxed text-muted-foreground">{hint}</div>}
       </Card>
     </motion.div>
   )

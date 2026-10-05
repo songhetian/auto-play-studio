@@ -6,8 +6,10 @@ function Kbd({ className, ...props }: HTMLAttributes<HTMLElement>) {
   return (
     <kbd
       className={cn(
-        'inline-flex h-5 min-w-5 items-center justify-center rounded border border-border bg-muted px-1.5',
-        'font-mono text-[11px] leading-none text-muted-foreground',
+        // 上边缘高光 + 下边缘暗线：让按键看起来是「立起来的实体」，而不是一个灰底方块
+        'inline-flex h-[18px] min-w-[18px] items-center justify-center rounded border border-border bg-muted px-1.5',
+        'font-mono text-2xs font-medium leading-none text-muted-foreground',
+        'shadow-[inset_0_1px_0_hsl(var(--foreground)/.06),0_1px_1px_hsl(var(--foreground)/.05)]',
         className,
       )}
       {...props}

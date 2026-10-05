@@ -7,8 +7,17 @@ const groupIds = (groups: ReturnType<typeof filterNav>) => groups.map((g) => g.i
 const labels = (groups: ReturnType<typeof filterNav>) => groups.flatMap((g) => g.items.map((i) => i.label))
 
 describe('导航信息架构', () => {
-  it('分成工作台 / 执行类 / 数据类 / 提醒类 / 辅助操作类 / 资源 / 系统 七组', () => {
-    expect(groupIds(NAV_GROUPS)).toEqual(['workbench', 'exec', 'data', 'alert', 'assist', 'resource', 'system'])
+  it('分成工作台 / 执行类 / 数据类 / 提醒类 / 辅助操作类 / 资源 / 客服工具 / 系统 八组', () => {
+    expect(groupIds(NAV_GROUPS)).toEqual([
+      'workbench',
+      'exec',
+      'data',
+      'alert',
+      'assist',
+      'resource',
+      'service',
+      'system',
+    ])
   })
 
   it('工具按「谁触发、产出什么」归组，不按产物格式', () => {
@@ -17,23 +26,35 @@ describe('导航信息架构', () => {
     expect(byGroup.exec).toEqual(['rpa'])
     // 程序调度、不碰屏幕、出 Excel
     expect(byGroup.data).toEqual(['logi', 'cmp'])
-    // 外部事件触发、产出通知 —— monitor 是常驻盯屏的提醒器，不是批处理执行器
-    expect(byGroup.alert).toEqual(['monitor'])
+    // 外部事件触发、产出通知 —— monitor（盯屏找图）与 guard（读输入框找词）
+    // 都是常驻提醒器，不是批处理执行器
+    expect(byGroup.alert).toEqual(['monitor', 'guard'])
     // 人按快捷键触发、产出当前窗口里的结果
     expect(byGroup.assist).toEqual(['macro'])
   })
 
-  it('十二个条目、路径唯一', () => {
+  it('条目数与路径唯一', () => {
+    // 不写死数字：加功能时这条测试应该只校验"路径不重复"这个不变量，
+    // 数量变化是预期行为，不该每次都来改这里
     const items = allNavItems()
-    expect(items).toHaveLength(12)
-    expect(new Set(items.map((i) => i.path)).size).toBe(12)
+    expect(items.length).toBeGreaterThan(0)
+    expect(new Set(items.map((i) => i.path)).size).toBe(items.length)
   })
 
   it('资源组放的是「全局一份、不可多开」的东西，不是工具', () => {
     const resource = NAV_GROUPS.find((g) => g.id === 'resource')!
-    expect(resource.items.map((i) => i.id)).toEqual(['assets', 'kb', 'excel'])
+    // 词库与素材库、知识库同属「全局一份、不可多开」：合规规则对公司是统一的，
+    // 复制到每个实例里改出分叉才是隐患
+    expect(resource.items.map((i) => i.id)).toEqual(['assets', 'sensitiveWords', 'kb', 'excelToolbox', 'excel'])
     // 工具型条目带 tool：实例数徽标是照 tool 查的，资源条目挂上会渲染成脏徽标
     expect(resource.items.every((i) => i.tool === undefined)).toBe(true)
+  })
+
+  it('客服工具组独立于资源组：它是日常要用的功能，不是「配置类资产」', () => {
+    const service = NAV_GROUPS.find((g) => g.id === 'service')!
+    expect(service.items.map((i) => i.id)).toEqual(['flowGuide', 'reminders', 'phrases'])
+    // 同样不该带 tool（话术不是可多开的实例）
+    expect(service.items.every((i) => i.tool === undefined)).toBe(true)
   })
 })
 
@@ -61,7 +82,7 @@ describe('总览页的工具分段', () => {
     expect(toolSections().map((s) => [s.id, s.label, s.tools.map((t) => t.id)])).toEqual([
       ['exec', '执行类工具', ['rpa']],
       ['data', '数据类工具', ['logi', 'cmp']],
-      ['alert', '提醒类', ['monitor']],
+      ['alert', '提醒类', ['monitor', 'guard']],
       ['assist', '辅助操作类', ['macro']],
     ])
   })
@@ -110,9 +131,12 @@ describe('导航搜索', () => {
     // 知识库是「按内容找文件」这件事本身，用户不会先想到「知识库」这个词
     expect(labels(filterNav('拼音'))).toEqual(['知识库'])
     expect(labels(filterNav('全文检索'))).toEqual(['知识库'])
-    expect(labels(filterNav('话术'))).toEqual(['知识库'])
-    // 表格有问题时，用户嘴里说的是「去重」「空行」「表头」，不会说「Excel 体检」
-    expect(labels(filterNav('去重'))).toEqual(['Excel 体检与整理'])
+    // 「话术」现在指向独立的话术库，不再是知识库的别名（两者已拆成不同功能）
+    expect(labels(filterNav('话术'))).toEqual(['话术库'])
+    expect(labels(filterNav('快捷回复'))).toEqual(['话术库'])
+    // 表格有问题时，用户嘴里说的是「去重」「空行」「表头」，不会说「Excel 体检」——
+    // 「去重」两个 Excel 功能都有，工具箱与体检都该被带出来
+    expect(labels(filterNav('去重'))).toEqual(['Excel 工具箱', 'Excel 体检与整理'])
     expect(labels(filterNav('空行'))).toEqual(['Excel 体检与整理'])
     expect(labels(filterNav('台账'))).toEqual(['Excel 体检与整理'])
   })
@@ -120,13 +144,16 @@ describe('导航搜索', () => {
   it('按分组名命中时带出该组全部条目', () => {
     expect(labels(filterNav('数据类'))).toEqual(['物流信息查询', 'Excel 多表对比'])
     expect(labels(filterNav('执行类'))).toEqual(['自动化脚本助手'])
-    expect(labels(filterNav('提醒类'))).toEqual(['桌面图片监控'])
+    expect(labels(filterNav('提醒类'))).toEqual(['桌面图片监控', '敏感词监控'])
     expect(labels(filterNav('辅助操作类'))).toEqual(['按键精灵'])
   })
 
   it('工具的搜索别名跟着注册表走，挪组不会丢', () => {
-    // 用户嘴里的「监控」「告警」指的是常驻盯屏这件事，不会去输「桌面图片监控」
-    expect(labels(filterNav('监控'))).toEqual(['桌面图片监控'])
+    // 用户嘴里的「监控」指的是常驻盯屏这件事，不会去输「桌面图片监控」。
+    // 现在带出两个监控工具是**对的**：图片监控盯画面、敏感词监控盯输入框，
+    // 用户搜「监控」本就不该只看到其中一个。
+    expect(labels(filterNav('监控'))).toEqual(['桌面图片监控', '敏感词监控', '敏感词库'])
+    // 「告警」仍是图片监控独有的说法（词库与敏感词监控都不自称告警工具）
     expect(labels(filterNav('告警'))).toEqual(['桌面图片监控'])
     // 别名要挑「只有它能命中」的：「一键」会串到 Excel 页的说明「一键整理出新文件」
     expect(labels(filterNav('连按'))).toEqual(['按键精灵'])
@@ -148,6 +175,7 @@ describe('导航搜索', () => {
       '自动化脚本助手',
       '物流信息查询',
       'Excel 多表对比',
+      'Excel 工具箱',
       'Excel 体检与整理',
     ])
   })

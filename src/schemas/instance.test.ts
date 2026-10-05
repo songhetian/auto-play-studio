@@ -39,6 +39,14 @@ describe('列映射校验', () => {
     expect(rpaConfigSchema.safeParse({ ...baseRpa, from: 10, to: 10 }).success).toBe(true)
   })
 
+  it('发送间隔默认 500ms，且不能是负数或超大值', () => {
+    const def = rpaConfigSchema.safeParse(baseRpa)
+    expect(def.success && def.data.sendIntervalMs).toBe(500)
+    expect(rpaConfigSchema.safeParse({ ...baseRpa, sendIntervalMs: -1 }).success).toBe(false)
+    expect(rpaConfigSchema.safeParse({ ...baseRpa, sendIntervalMs: 20000 }).success).toBe(false)
+    expect(rpaConfigSchema.safeParse({ ...baseRpa, sendIntervalMs: 0 }).success).toBe(true)
+  })
+
   it('统一内容开启时可以不选消息内容列', () => {
     const r = rpaConfigSchema.safeParse({ ...baseRpa, colMsg: undefined, unified: true, unifiedText: '你好' })
     expect(r.success).toBe(true)
@@ -236,6 +244,36 @@ describe('实例级快捷键', () => {
   it('只给一半字段时其余取默认值，避免半残的热键配置', () => {
     const r = instanceConfigSchema.parse({ ...rpa, hotkeys: { toggle: 'F7' } })
     expect(r.hotkeys).toEqual({ ...DEFAULTS, toggle: 'F7' })
+  })
+
+  it('老的 monitor 存档没有 alertSound 字段时补默认语音，不影响既有实例', () => {
+    const r = instanceConfigSchema.parse({ tool: 'monitor', region: 'full', rules: [] })
+    expect(r.tool).toBe('monitor')
+    const sound = (r as { alertSound?: { preset: string } }).alertSound
+    expect(sound?.preset).toBe('voice')
+  })
+
+  it('monitor 可以配静音 / 铃声 / 自定义音频', () => {
+    for (const alertSound of [
+      { preset: 'silent', text: '', customPath: '' },
+      { preset: 'chime', text: '', customPath: '' },
+      { preset: 'voice', text: '客户来消息了', customPath: '' },
+      { preset: 'voice', text: '', customPath: 'C:/tmp/ding.wav' },
+    ]) {
+      const r = instanceConfigSchema.parse({ tool: 'monitor', region: 'full', rules: [], alertSound })
+      const sound = (r as { alertSound?: { preset: string } }).alertSound
+      expect(sound?.preset).toBe(alertSound.preset)
+    }
+  })
+
+  it('自定义音频扩展名不对时直接拒掉（保存阶段就拦，不留到报警时才发现）', () => {
+    const r = instanceConfigSchema.safeParse({
+      tool: 'monitor',
+      region: 'full',
+      rules: [],
+      alertSound: { preset: 'voice', text: '', customPath: 'C:/tmp/a.txt' },
+    })
+    expect(r.success).toBe(false)
   })
 
   it('作用范围只接受 window / tool', () => {

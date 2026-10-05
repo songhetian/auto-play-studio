@@ -101,4 +101,23 @@ describe('实例读模型归一化', () => {
     expect(normalizeInstances({ detail: 'boom' })).toEqual([])
     expect(normalizeInstances([engineRpa])).toHaveLength(1)
   })
+
+  it('guard 实例补齐 guard 段与 hotkeys —— 老存档没有这两段，配置页读 guard.levels 会白屏', () => {
+    const guard = normalizeInstance({
+      id: 'G1',
+      name: '敏感词监控',
+      tool: 'guard',
+      status: 'idle',
+      done: 0,
+      total: 0,
+      updatedAt: 0,
+      config: { tool: 'guard', window: '千牛' },
+    } as unknown as Instance)
+
+    const cfg = guard.config
+    if (cfg.tool !== 'guard') throw new Error('工具类型应保持 guard')
+    expect(cfg.guard.captureMode).toBe('auto')
+    expect(cfg.guard.levels).toEqual(['high', 'mid', 'low'])
+    expect(cfg.hotkeys.run).toBe('F8')
+  })
 })

@@ -29,6 +29,9 @@ DialogOverlay.displayName = DialogPrimitive.Overlay.displayName
 /**
  * 弹窗宽度只用两档：默认给确认/表单，wide 给列表型内容。
  * 宽度交给调用方随便填的话，同类弹窗会各不相同。
+ *
+ * `tone` 决定顶部那道强调带的颜色：危险动作要给红色第一眼提示，
+ * 常规弹窗用品牌色就够了。缺省 `default` 不加带，保持原有观感。
  */
 const dialogContentVariants = cva(
   cn(
@@ -45,8 +48,14 @@ const dialogContentVariants = cva(
         default: 'max-w-[460px]',
         wide: 'max-w-[720px]',
       },
+      tone: {
+        default: '',
+        danger: 'border-t-2 border-t-destructive',
+        warn: 'border-t-2 border-t-warn',
+        primary: 'border-t-2 border-t-primary',
+      },
     },
-    defaultVariants: { size: 'default' },
+    defaultVariants: { size: 'default', tone: 'default' },
   },
 )
 
@@ -55,14 +64,18 @@ export interface DialogContentProps
     VariantProps<typeof dialogContentVariants> {}
 
 const DialogContent = React.forwardRef<React.ElementRef<typeof DialogPrimitive.Content>, DialogContentProps>(
-  ({ className, children, size, ...props }, ref) => (
+  ({ className, children, size, tone, ...props }, ref) => (
     <DialogPortal>
       <DialogOverlay />
-      <DialogPrimitive.Content ref={ref} className={cn(dialogContentVariants({ size }), className)} {...props}>
+      <DialogPrimitive.Content
+        ref={ref}
+        className={cn(dialogContentVariants({ size, tone }), className)}
+        {...props}
+      >
         {children}
         <DialogPrimitive.Close
           className={cn(
-            'absolute right-4 top-4 rounded-md p-1 text-muted-foreground transition-colors',
+            'absolute right-4 top-4 rounded-full p-1 text-muted-foreground transition-colors',
             'hover:bg-accent hover:text-foreground',
             'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40',
           )}
@@ -91,7 +104,7 @@ const DialogTitle = React.forwardRef<
 >(({ className, ...props }, ref) => (
   <DialogPrimitive.Title
     ref={ref}
-    className={cn('text-[15px] font-medium leading-tight tracking-tight', className)}
+    className={cn('text-md font-semibold leading-tight tracking-tight', className)}
     {...props}
   />
 ))
@@ -101,7 +114,7 @@ const DialogDescription = React.forwardRef<
   React.ElementRef<typeof DialogPrimitive.Description>,
   React.ComponentPropsWithoutRef<typeof DialogPrimitive.Description>
 >(({ className, ...props }, ref) => (
-  <DialogPrimitive.Description ref={ref} className={cn('text-[13px] leading-relaxed text-muted-foreground', className)} {...props} />
+  <DialogPrimitive.Description ref={ref} className={cn('text-base leading-relaxed text-muted-foreground', className)} {...props} />
 ))
 DialogDescription.displayName = DialogPrimitive.Description.displayName
 

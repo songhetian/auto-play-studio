@@ -24,8 +24,8 @@ export function EmptyState({
       <span className="flex size-11 items-center justify-center rounded-xl border border-border bg-muted/60 text-muted-foreground">
         <Icon name={icon} size={20} />
       </span>
-      <div className="mt-3 text-[13.5px] font-medium">{title}</div>
-      {desc && <div className="mt-1 max-w-[46ch] text-[12.5px] leading-relaxed text-muted-foreground">{desc}</div>}
+      <div className="mt-3 text-base font-medium">{title}</div>
+      {desc && <div className="mt-1 max-w-[46ch] text-sm leading-relaxed text-muted-foreground">{desc}</div>}
       {actions && <div className="mt-4 flex flex-wrap items-center justify-center gap-2">{actions}</div>}
     </div>
   )

@@ -7,28 +7,41 @@ const Select = SelectPrimitive.Root
 const SelectGroup = SelectPrimitive.Group
 const SelectValue = SelectPrimitive.Value
 
-const SelectTrigger = React.forwardRef<
-  React.ElementRef<typeof SelectPrimitive.Trigger>,
-  React.ComponentPropsWithoutRef<typeof SelectPrimitive.Trigger>
->(({ className, children, ...props }, ref) => (
-  <SelectPrimitive.Trigger
-    ref={ref}
-    className={cn(
-      'flex h-8 w-full items-center justify-between gap-2 rounded-md border border-input bg-background px-3 py-1 text-[13px] shadow-sm',
-      'data-[placeholder]:text-muted-foreground',
-      'focus:outline-none focus:border-ring focus:ring-2 focus:ring-ring/25',
-      'disabled:cursor-not-allowed disabled:opacity-55',
-      '[&>span]:line-clamp-1 [&>span]:text-left',
-      className,
-    )}
-    {...props}
-  >
-    {children}
-    <SelectPrimitive.Icon asChild>
-      <Icon name="chevronDown" size={14} className="shrink-0 text-muted-foreground" />
-    </SelectPrimitive.Icon>
-  </SelectPrimitive.Trigger>
-))
+type SelectTriggerProps = Omit<React.ComponentPropsWithoutRef<typeof SelectPrimitive.Trigger>, 'size'> & {
+  error?: boolean
+  size?: 'sm' | 'default' | 'lg'
+}
+
+const TRIGGER_SIZE: Record<NonNullable<SelectTriggerProps['size']>, string> = {
+  sm: 'h-7 text-sm px-2.5',
+  default: 'h-8 text-base px-3',
+  lg: 'h-9 text-base px-3.5',
+}
+
+const SelectTrigger = React.forwardRef<React.ElementRef<typeof SelectPrimitive.Trigger>, SelectTriggerProps>(
+  ({ className, children, error, size = 'default', ...props }, ref) => (
+    <SelectPrimitive.Trigger
+      ref={ref}
+      className={cn(
+        'flex w-full items-center justify-between gap-2 rounded-md border bg-background shadow-sm transition-all duration-150',
+        'data-[placeholder]:text-muted-foreground',
+        'border-input hover:border-foreground/30',
+        'focus:outline-none focus:border-ring focus:ring-[3px] focus:ring-ring/20',
+        'disabled:cursor-not-allowed disabled:opacity-55',
+        error && 'border-destructive hover:border-destructive focus:border-destructive focus:ring-destructive/20',
+        TRIGGER_SIZE[size],
+        '[&>span]:line-clamp-1 [&>span]:text-left',
+        className,
+      )}
+      {...props}
+    >
+      {children}
+      <SelectPrimitive.Icon asChild>
+        <Icon name="chevronDown" size={14} className="shrink-0 text-muted-foreground" />
+      </SelectPrimitive.Icon>
+    </SelectPrimitive.Trigger>
+  ),
+)
 SelectTrigger.displayName = SelectPrimitive.Trigger.displayName
 
 const SelectScrollUpButton = React.forwardRef<
@@ -96,7 +109,7 @@ const SelectLabel = React.forwardRef<
 >(({ className, ...props }, ref) => (
   <SelectPrimitive.Label
     ref={ref}
-    className={cn('px-2 py-1.5 text-[11.5px] font-medium text-muted-foreground', className)}
+    className={cn('px-2 py-1.5 text-xs font-medium text-muted-foreground', className)}
     {...props}
   />
 ))
@@ -104,19 +117,21 @@ SelectLabel.displayName = SelectPrimitive.Label.displayName
 
 const SelectItem = React.forwardRef<
   React.ElementRef<typeof SelectPrimitive.Item>,
-  React.ComponentPropsWithoutRef<typeof SelectPrimitive.Item>
->(({ className, children, ...props }, ref) => (
+  React.ComponentPropsWithoutRef<typeof SelectPrimitive.Item> & { destructive?: boolean }
+>(({ className, children, destructive, ...props }, ref) => (
   <SelectPrimitive.Item
     ref={ref}
     className={cn(
-      'relative flex w-full cursor-default select-none items-center gap-2 rounded-md py-1.5 pl-2 pr-8 text-[13px] outline-none',
+      'relative flex w-full cursor-default select-none items-center gap-2 rounded-md py-1.5 pl-2.5 pr-8 text-base outline-none transition-colors',
       'focus:bg-accent focus:text-accent-foreground',
+      'data-[state=checked]:font-medium',
       'data-[disabled]:pointer-events-none data-[disabled]:opacity-50',
+      destructive && 'text-destructive focus:bg-destructive/10 focus:text-destructive',
       className,
     )}
     {...props}
   >
-    <span className="absolute right-2 flex size-3.5 items-center justify-center text-primary">
+    <span className="absolute right-2.5 flex size-3.5 items-center justify-center text-primary">
       <SelectPrimitive.ItemIndicator>
         <Icon name="check" size={13} />
       </SelectPrimitive.ItemIndicator>

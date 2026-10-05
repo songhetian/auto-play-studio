@@ -5,7 +5,10 @@ import * as echarts from 'echarts'
 import { motion } from 'motion/react'
 import { api, openLogStream } from '@/lib/api'
 import { ipc } from '@/lib/ipc'
+import { buildRunConfirm } from '@/lib/runGuard'
+import { controlToastText } from '@/lib/runToast'
 import { useInstanceStore } from '@/stores/instanceStore'
+import { toast } from '@/stores/toastStore'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -15,6 +18,7 @@ import { Progress } from '@/components/ui/progress'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Icon } from '@/components/icon'
 import { EmptyState } from '@/components/blocks/empty-state'
+import { ConfirmDialog } from '@/components/blocks/confirm-dialog'
 import { StatCard } from '@/components/blocks/stat-card'
 import CompareRun from '@/modules/instance/CompareRun'
 import RunSummaryCard from '@/modules/instance/RunSummaryCard'
@@ -45,6 +49,9 @@ export default function RunPage() {
   const palette = useMemo(() => chartPalette(theme), [theme])
   /** 热键因冲突被路由到别的实例时的说明 */
   const [routed, setRouted] = useState<HotkeyRouted | null>(null)
+  /** 执行前确认：点「开始执行」先弹框，确认后才真正下发 start */
+  const [armStart, setArmStart] = useState(false)
+  const runConfirm = inst ? buildRunConfirm(inst) : null
 
   const { data: rows = [] } = useQuery({
     queryKey: ['rows', id],
@@ -71,11 +78,13 @@ export default function RunPage() {
 
   const controlMut = useMutation({
     mutationFn: (action: 'start' | 'pause' | 'resume' | 'stop') => api.control(id, action),
-    onSuccess: (res) => {
+    onSuccess: (res, action) => {
       // 状态迁移由后端确认，前端状态机做守卫
       transition(id, res.status as never)
       qc.invalidateQueries({ queryKey: ['instances'] })
+      toast.success(controlToastText(action))
     },
+    onError: (e: Error) => toast.error(e.message),
   })
 
   const status = inst?.status
@@ -108,10 +117,18 @@ export default function RunPage() {
 
   // 同名热键被多个实例占用时，主进程会回执「这次打给了谁」
   useEffect(() => {
-    return ipc.onHotkeyRouted((info) => {
+    let timer: number | undefined
+    const off = ipc.onHotkeyRouted((info) => {
       setRouted(info)
-      window.setTimeout(() => setRouted(null), 6000)
+      // 连续路由/卸载时先清掉上一个定时器：否则旧定时器会把新提示提前清空，
+      // 或对已卸载组件 setState
+      if (timer !== undefined) window.clearTimeout(timer)
+      timer = window.setTimeout(() => setRouted(null), 6000)
     })
+    return () => {
+      off()
+      if (timer !== undefined) window.clearTimeout(timer)
+    }
   }, [])
 
   const stats = useMemo(() => {
@@ -209,18 +226,18 @@ export default function RunPage() {
         </span>
         <div className="min-w-0">
           <div className="flex items-center gap-2">
-            <h1 className="text-[16px] font-medium leading-tight">{inst.name}</h1>
+            <h1 className="text-lg font-medium leading-tight">{inst.name}</h1>
             <Badge variant={running ? 'success' : inst.status === 'error' ? 'destructive' : 'secondary'}>
               {running && <span className="size-1.5 animate-pulse rounded-full bg-current" />}
               {STATUS_TEXT[inst.status]}
             </Badge>
           </div>
-          <p className="mt-0.5 text-[12px] text-muted-foreground">
+          <p className="mt-0.5 text-sm text-muted-foreground">
             {isMacro ? '执行一次即按顺序走完整串动作，配置请前往「实例配置」' : '运行与监控在此进行，配置请前往「实例配置」'}
           </p>
         </div>
         <div className="flex-1" />
-        <span className="hidden items-center gap-1.5 text-[11.5px] text-muted-foreground lg:flex">
+        <span className="hidden items-center gap-1.5 text-xs text-muted-foreground lg:flex">
           <Kbd>{formatAccel(hk.run)}</Kbd> {isMacro ? '执行一次' : '开始执行'}
           <Kbd>{formatAccel(hk.toggle)}</Kbd> 暂停 / 继续
           <Kbd>{formatAccel(hk.stop)}</Kbd> 停止
@@ -233,15 +250,47 @@ export default function RunPage() {
           <Icon name="sliders" size={13} />
           配置
         </Button>
-        <Button size="sm" onClick={() => controlMut.mutate(running ? 'pause' : 'start')} disabled={controlMut.isPending}>
+        <Button
+          size="sm"
+          onClick={() => {
+            // 运行中 → 暂停；已暂停 → 继续；其余 → 先过执行前确认这道护栏
+            if (running) {
+              controlMut.mutate('pause')
+              return
+            }
+            if (status === 'paused') {
+              controlMut.mutate('resume')
+              return
+            }
+            if (runConfirm) setArmStart(true)
+            else controlMut.mutate('start')
+          }}
+          disabled={controlMut.isPending}
+        >
           <Icon name={running ? 'pause' : 'play'} size={13} />
-          {running ? '暂停' : isMacro ? '执行一次' : '开始执行'}
+          {running ? '暂停' : status === 'paused' ? '继续' : isMacro ? '执行一次' : '开始执行'}
         </Button>
         <Button variant="outline" size="sm" onClick={() => controlMut.mutate('stop')} disabled={controlMut.isPending}>
           <Icon name="stop" size={13} />
           停止
         </Button>
       </motion.div>
+
+      {runConfirm && (
+        <ConfirmDialog
+          open={armStart}
+          onOpenChange={setArmStart}
+          icon="play"
+          action="start"
+          title={runConfirm.title}
+          desc={runConfirm.desc}
+          confirmText={runConfirm.confirmText}
+          onConfirm={() => {
+            setArmStart(false)
+            controlMut.mutate('start')
+          }}
+        />
+      )}
 
       {routed && (
         <Alert variant="warning">
@@ -273,7 +322,7 @@ export default function RunPage() {
         <>
           <Card>
             <CardContent className="space-y-2">
-              <div className="flex items-center justify-between text-[12.5px]">
+              <div className="flex items-center justify-between text-sm">
                 <span className="text-muted-foreground">整体进度</span>
                 <span className="font-mono tabular-nums">
                   {inst.done} / {inst.total}
@@ -308,7 +357,7 @@ export default function RunPage() {
           <Card className="overflow-hidden">
             <CardHeader>
               <CardTitle>{isMacro ? '逐条明细' : '执行明细'}</CardTitle>
-              <span className="text-[12px] text-muted-foreground">
+              <span className="text-sm text-muted-foreground">
                 {isMacro ? '每一步都会留痕，失败会指出是第几步' : '结果实时回写 Excel 状态列'}
               </span>
             </CardHeader>
@@ -328,13 +377,13 @@ export default function RunPage() {
                     const s = ROW_STATUS[r.status] ?? ROW_STATUS.wait
                     return (
                       <TableRow key={r.rowNo}>
-                        <TableCell className="font-mono text-[12px] tabular-nums">{r.rowNo}</TableCell>
+                        <TableCell className="font-mono text-sm tabular-nums">{r.rowNo}</TableCell>
                         <TableCell className="font-medium">{r.keyValue}</TableCell>
                         <TableCell>
                           <Badge variant={s.variant}>{s.text}</Badge>
                         </TableCell>
-                        <TableCell className="text-[12.5px] text-muted-foreground">{r.message || '—'}</TableCell>
-                        <TableCell className="text-right font-mono text-[12px] tabular-nums">
+                        <TableCell className="text-sm text-muted-foreground">{r.message || '—'}</TableCell>
+                        <TableCell className="text-right font-mono text-sm tabular-nums">
                           {(r.durationMs / 1000).toFixed(1)}
                         </TableCell>
                       </TableRow>
@@ -361,7 +410,7 @@ export default function RunPage() {
         <Card className="overflow-hidden">
           <CardHeader>
             <CardTitle>命中记录</CardTitle>
-            <span className="text-[12px] text-muted-foreground">目标图出现时记一次，持续存在不重复</span>
+            <span className="text-sm text-muted-foreground">目标图出现时记一次，持续存在不重复</span>
           </CardHeader>
           {hits.length ? (
             <Table>
@@ -376,14 +425,14 @@ export default function RunPage() {
               <TableBody>
                 {hits.map((h, i) => (
                   <TableRow key={i}>
-                    <TableCell className="font-mono text-[12px]">{h.ts}</TableCell>
-                    <TableCell className="font-mono text-[12px]">{h.assetId}</TableCell>
+                    <TableCell className="font-mono text-sm">{h.ts}</TableCell>
+                    <TableCell className="font-mono text-sm">{h.assetId}</TableCell>
                     <TableCell>
                       <Badge variant={(h.similarity ?? 0) >= 0.85 ? 'success' : 'warning'}>
                         {((h.similarity ?? 0) * 100).toFixed(0)}%
                       </Badge>
                     </TableCell>
-                    <TableCell className="font-mono text-[12px] text-muted-foreground">
+                    <TableCell className="font-mono text-sm text-muted-foreground">
                       {h.rect ? `${h.rect[0]}, ${h.rect[1]}` : '—'}
                     </TableCell>
                   </TableRow>
@@ -403,9 +452,9 @@ export default function RunPage() {
       <Card className="overflow-hidden">
         <CardHeader>
           <CardTitle>运行日志</CardTitle>
-          <span className="text-[12px] text-muted-foreground">仅保留本实例日志</span>
+          <span className="text-sm text-muted-foreground">仅保留本实例日志</span>
         </CardHeader>
-        <div className="logbox h-44 overflow-y-auto p-3.5 font-mono text-[12px]">
+        <div className="logbox h-44 overflow-y-auto p-3.5 font-mono text-sm">
           {logs.map((l, i) => (
             <div key={i}>
               [{l.ts}] {l.message}

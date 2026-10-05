@@ -83,3 +83,38 @@ describe('预览标红切分', () => {
     expect(templateParts('', COLS)).toEqual([])
   })
 })
+
+/**
+ * 白名单/边界必须真的挡住。
+ *
+ * 「名字不认识就报错，绝不静默降级」这条承诺，曾被两处原型链绕过：
+ * `FORMATTERS['constructor']` 命中 Object 函数、`values['constructor']` 命中原型属性。
+ */
+describe('原型链与参数边界', () => {
+  it('格式化器名走白名单，原型上的属性不算数', () => {
+    expect(() => renderTemplate('{值|constructor}', { values: { 值: 'abc' } })).toThrow(TemplateError)
+    expect(() => renderTemplate('{值|__proto__}', { values: { 值: 'abc' } })).toThrow(TemplateError)
+  })
+
+  it('列名查表不看原型链', () => {
+    expect(() => renderTemplate('{constructor}', { values: {} })).toThrow(TemplateError)
+  })
+
+  it('templateIssues 对原型名给中文问题，而不是抛原生异常', () => {
+    const issues = templateIssues('{值|__proto__}', ['值'])
+    expect(issues).toHaveLength(1)
+    expect(issues[0]).toContain('格式化器')
+  })
+
+  it('mask 不能因为位数刚好不够就把敏感值原样发出去', () => {
+    // 8 位 id 曾经 slice(0,4) + '' + slice(-4) → 原样输出
+    expect(renderTemplate('{值|mask:id}', { values: { 值: '12345678' } })).not.toBe('12345678')
+    expect(renderTemplate('{值|mask:phone}', { values: { 值: '1234567' } })).not.toBe('1234567')
+  })
+
+  it('pad 位数过大时给中文报错，而不是抛 RangeError', () => {
+    const issues = templateIssues('{值|pad:999999999}', ['值'])
+    expect(issues).toHaveLength(1)
+    expect(issues[0]).toContain('位数')
+  })
+})

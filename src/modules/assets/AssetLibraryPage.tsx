@@ -1,9 +1,16 @@
-import { useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { motion } from 'motion/react'
 import { AssetInUseError, api } from '@/lib/api'
 import type { AssetRef, ImageAsset } from '@/lib/api'
 import { ALL_TAGS, filterAssets, groupProblems, tagsOf } from '@/lib/assetFilter'
 import { hasRegionPicker, ipc } from '@/lib/ipc'
+import { IMAGE_EXT, VIDEO_EXT } from '@/lib/fileDrop'
+import { buildSynonymMap, locateByIntent } from '@/lib/intentLocate'
+import { downloadGroups, readGroupsFile } from '@/lib/synonymIo'
+import { cn } from '@/lib/utils'
+import { useSynonymStore } from '@/stores/synonymStore'
+import { toast } from '@/stores/toastStore'
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -20,6 +27,7 @@ import {
   useAssets,
   useCaptureAsset,
   useDeleteAsset,
+  useExtractVideo,
   useUpdateAsset,
   useUploadAsset,
 } from '@/modules/assets/useAssets'
@@ -44,13 +52,72 @@ export default function AssetLibraryPage() {
   const { data: assets = [], isLoading } = useAssets()
   const { data: problems = [] } = useAssetAudit()
   const upload = useUploadAsset()
+  const extractVideo = useExtractVideo()
   const capture = useCaptureAsset()
   const update = useUpdateAsset()
   const remove = useDeleteAsset()
 
+  /** 意图定位：输入一句自然语言（"检查是否遗漏配件"），按名字/标签/OCR 快速定位相关素材 */
+  const [intent, setIntent] = useState('')
+
+  // 可自定义同义词表：从持久化 store 读，喂给意图定位；改词即时生效、跨会话记住
+  const { groups, addGroup, removeGroup, addWord, removeWord, reset, setGroups } = useSynonymStore()
+  const synonymMap = useMemo(() => buildSynonymMap(groups), [groups])
+  const [synOpen, setSynOpen] = useState(false)
+
+  // 同义词表跨机器分享：导出成一个 JSON 文件发出去；导入用文件覆盖当前表
+  const handleExportSynonyms = () => {
+    try {
+      downloadGroups(groups)
+      setNote('已导出 synonyms.json：可发给同事，对方在「同义词管理」里导入即可')
+      toast.success('已导出 synonyms.json')
+    } catch (e) {
+      setNote((e as Error).message)
+      toast.error((e as Error).message)
+    }
+  }
+  const handleImportSynonyms = async () => {
+    try {
+      const parsed = await readGroupsFile()
+      if (!parsed) return // 用户取消选择
+      setGroups(parsed)
+      setNote(`已从文件导入 ${parsed.length} 个同义词组`)
+      toast.success(`已导入 ${parsed.length} 个同义词组`)
+    } catch (e) {
+      setNote(`导入失败：${(e as Error).message}`)
+      toast.error(`导入失败：${(e as Error).message}`)
+    }
+  }
+
   const problemsByAsset = useMemo(() => groupProblems(problems), [problems])
   const shown = useMemo(() => filterAssets(assets, { keyword: kw, tag }), [assets, kw, tag])
   const brokenCount = new Set(problems.map((p) => p.assetId)).size
+
+  // 意图定位：把素材（名字/标签）当可检索文本，按意图句关键词打分排序；离线启发式（见 docs）
+  const intentHits = useMemo(() => {
+    if (!intent.trim()) return null
+    const hits = locateByIntent(
+      intent,
+      shown.map((a) => ({ id: a.id, name: a.name, tag: a.tag })),
+      synonymMap,
+    )
+    return hits.length ? hits : null
+    // synonymMap 必须进依赖：同义词弹窗改了词表后，intent/shown 没变也要重算，
+    // 否则界面仍用旧同义词表（文案却承诺「改动即时生效」）
+  }, [intent, shown, synonymMap])
+
+  const hitIds = useMemo(() => new Set(intentHits?.map((h) => h.id) ?? []), [intentHits])
+
+  // 命中意图的素材排到最前，方便"不用从头翻"
+  const ranked = useMemo(() => {
+    if (!intentHits) return shown
+    const order = new Map(intentHits.map((h, i) => [h.id, i]))
+    return [...shown].sort((a, b) => {
+      const ia = order.has(a.id) ? (order.get(a.id) as number) : Number.MAX_SAFE_INTEGER
+      const ib = order.has(b.id) ? (order.get(b.id) as number) : Number.MAX_SAFE_INTEGER
+      return ia - ib
+    })
+  }, [intentHits, shown])
 
   // 选中项从查询结果里取，保证改名/改阈值后弹窗内容跟着刷新
   const selected = useMemo(() => assets.find((a) => a.id === selectedId) ?? null, [assets, selectedId])
@@ -72,16 +139,30 @@ export default function AssetLibraryPage() {
     }
   }
 
-  const onUpload = async (files: FileList | null) => {
+  const onUpload = async (files: File[] | FileList | null) => {
     setNote('')
     const list = Array.from(files ?? [])
     if (!list.length) return
+    const isVideo = (f: File) => VIDEO_EXT.split(',').some((ext) => f.name.toLowerCase().endsWith(ext))
+    const videos = list.filter(isVideo)
+    const images = list.filter((f) => !isVideo(f))
     try {
-      const created: ImageAsset[] = []
-      for (const file of list) created.push(await upload.mutateAsync({ file }))
-      // 单张导入时直接把详情弹窗打开：用户几乎总想给它改个名字
-      if (created.length === 1) setSelectedId(created[0].id)
-      setNote(`已导入 ${created.length} 张${created.length === 1 ? '，可以直接改名字' : ''}`)
+      let imgCount = 0
+      for (const file of images) {
+        await upload.mutateAsync({ file })
+        imgCount += 1
+      }
+      // 视频：均匀抽帧成素材，免得让人从头翻一遍找目标画面
+      let frameCount = 0
+      for (const file of videos) {
+        const r = await extractVideo.mutateAsync(file)
+        frameCount += r.count
+      }
+      if (imgCount) {
+        setNote(`已导入 ${imgCount} 张图片${videos.length ? `，并从 ${videos.length} 段视频抽出 ${frameCount} 帧（标签「视频帧」）` : ''}`)
+      } else if (videos.length) {
+        setNote(`已从 ${videos.length} 段视频抽出 ${frameCount} 帧，进素材库后可用「意图定位」快速找目标画面`)
+      }
     } catch (e) {
       setNote((e as Error).message)
     }
@@ -100,8 +181,61 @@ export default function AssetLibraryPage() {
     }
   }
 
+  // 页面级拖拽热区：素材图多半是一批拖进来的，在正文任意位置松手都能收。
+  // 拖到别处（顶部导航、侧边栏）不响应，避免"界面到处都在接文件"。
+  const [pageDrag, setPageDrag] = useState(false)
+  const dragDepth = useRef(0)
+  useEffect(() => {
+    const hasFiles = (e: DragEvent) => Array.from(e.dataTransfer?.types ?? []).includes('Files')
+    const onEnter = (e: DragEvent) => {
+      if (!hasFiles(e)) return
+      dragDepth.current += 1
+      setPageDrag(true)
+    }
+    const onLeave = () => {
+      dragDepth.current = Math.max(0, dragDepth.current - 1)
+      if (dragDepth.current === 0) setPageDrag(false)
+    }
+    const onOver = (e: DragEvent) => {
+      if (hasFiles(e)) e.preventDefault()
+    }
+    const onDrop = (e: DragEvent) => {
+      if (!hasFiles(e)) return
+      e.preventDefault()
+      dragDepth.current = 0
+      setPageDrag(false)
+      void onUpload(e.dataTransfer?.files ?? null)
+    }
+    window.addEventListener('dragenter', onEnter)
+    window.addEventListener('dragleave', onLeave)
+    window.addEventListener('dragover', onOver)
+    window.addEventListener('drop', onDrop)
+    return () => {
+      window.removeEventListener('dragenter', onEnter)
+      window.removeEventListener('dragleave', onLeave)
+      window.removeEventListener('dragover', onOver)
+      window.removeEventListener('drop', onDrop)
+    }
+    // onUpload 每次渲染都是新函数；这里只注册一次，靠 ref 取最新实现
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
   return (
-    <div className="mx-auto max-w-[1240px] space-y-4 p-5">
+    <div
+      className={cn(
+        'mx-auto max-w-[1240px] space-y-5 p-5 transition-colors',
+        pageDrag && 'relative rounded-lg ring-2 ring-primary/40',
+      )}
+    >
+      {pageDrag && (
+        <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center rounded-lg bg-background/85">
+          <div className="flex flex-col items-center gap-2 text-center">
+            <Icon name="download" size={26} className="text-primary" />
+            <div className="text-base font-medium">松手就把图片放进素材库</div>
+            <div className="text-xs text-muted-foreground">支持 {IMAGE_EXT.split(',').join(' / ')} 与视频抽帧，可一次多选</div>
+          </div>
+        </div>
+      )}
       <PageHeader
         icon="assets"
         title="图像素材库"
@@ -111,7 +245,7 @@ export default function AssetLibraryPage() {
             <input
               ref={fileRef}
               type="file"
-              accept="image/png,image/jpeg,image/gif,image/bmp,image/webp"
+              accept={`${IMAGE_EXT},${VIDEO_EXT}`}
               multiple
               className="hidden"
               onChange={(e) => {
@@ -121,7 +255,7 @@ export default function AssetLibraryPage() {
             />
             <Button variant="outline" size="sm" disabled={upload.isPending} onClick={() => fileRef.current?.click()}>
               <Icon name="upload" size={14} />
-              导入图片
+              导入图片（可多选）
             </Button>
             <Button
               size="sm"
@@ -131,6 +265,10 @@ export default function AssetLibraryPage() {
             >
               <Icon name="crop" size={14} />
               框选截图
+            </Button>
+            <Button variant="outline" size="sm" onClick={() => setSynOpen(true)}>
+              <Icon name="tag" size={14} />
+              同义词（{groups.length}）
             </Button>
           </>
         }
@@ -183,6 +321,124 @@ export default function AssetLibraryPage() {
             {brokenCount > 0 && <Badge variant="destructive">{brokenCount} 张有问题</Badge>}
           </div>
         </CardHeader>
+
+        <div className="space-y-2 border-b border-border p-3">
+          <div className="relative">
+            <Icon
+              name="target"
+              size={14}
+              className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground"
+            />
+            <Input
+              className="pl-8"
+              placeholder="输入意图快速定位，如：检查是否遗漏配件"
+              value={intent}
+              onChange={(e) => setIntent(e.target.value)}
+            />
+            {intent && (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="absolute right-1 top-1/2 h-6 -translate-y-1/2"
+                onClick={() => setIntent('')}
+              >
+                <Icon name="close" size={12} />
+              </Button>
+            )}
+          </div>
+          {intentHits && (
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+              <Icon name="target" size={13} className="text-primary" />
+              按意图「{intent}」找到 <span className="font-medium text-foreground">{hitIds.size}</span> 张，已排到最前
+            </div>
+          )}
+        </div>
+
+        <Dialog open={synOpen} onOpenChange={setSynOpen}>
+          <DialogContent className="sm:max-w-[560px]">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <Icon name="tag" size={15} />
+                同义词管理
+              </DialogTitle>
+              <DialogDescription>
+                同组词互为等价：输入「螺丝」也能定位名为「螺栓」「螺钉」的素材。改动即时生效，并跨会话记住。
+                导出成 JSON 可发给同事；导入会用文件覆盖当前同义词表。
+              </DialogDescription>
+            </DialogHeader>
+
+            <div className="max-h-[55vh] space-y-3 overflow-y-auto pr-1">
+              {groups.map((group, gi) => (
+                <div key={gi} className="rounded-lg border border-border p-3">
+                  <div className="mb-2 flex items-center justify-between">
+                    <span className="text-sm text-muted-foreground">同义词组 {gi + 1}</span>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-6 text-muted-foreground"
+                      onClick={() => removeGroup(gi)}
+                    >
+                      <Icon name="trash" size={13} />
+                      删组
+                    </Button>
+                  </div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {group.map((w) => (
+                      <span
+                        key={w}
+                        className="inline-flex items-center gap-1 rounded-md bg-muted px-2 py-0.5 text-sm"
+                      >
+                        {w}
+                        <button
+                          type="button"
+                          aria-label={`删除同义词 ${w}`}
+                          className="text-muted-foreground transition-colors hover:text-destructive"
+                          onClick={() => removeWord(gi, w)}
+                        >
+                          <Icon name="close" size={11} />
+                        </button>
+                      </span>
+                    ))}
+                  </div>
+                  <form
+                    className="mt-2"
+                    onSubmit={(e) => {
+                      e.preventDefault()
+                      const v = new FormData(e.currentTarget).get('w') as string
+                      if (v?.trim()) {
+                        addWord(gi, v.trim())
+                        e.currentTarget.reset()
+                      }
+                    }}
+                  >
+                    <Input name="w" className="h-7 text-sm" placeholder="加一个同义词，回车确认" />
+                  </form>
+                </div>
+              ))}
+            </div>
+
+            <DialogFooter className="gap-2">
+              <Button variant="outline" size="sm" onClick={handleExportSynonyms}>
+                <Icon name="download" size={13} />
+                导出 JSON
+              </Button>
+              <Button variant="outline" size="sm" onClick={() => void handleImportSynonyms()}>
+                <Icon name="upload" size={13} />
+                导入 JSON
+              </Button>
+              <Button variant="outline" size="sm" onClick={() => addGroup()}>
+                <Icon name="plus" size={13} />
+                新增同义词组
+              </Button>
+              <Button variant="ghost" size="sm" onClick={() => reset()}>
+                恢复内置默认
+              </Button>
+              <Button size="sm" onClick={() => setSynOpen(false)}>
+                完成
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
 
         <div className="flex flex-wrap items-center gap-2 border-b border-border p-3">
           <div className="relative w-[220px]">
@@ -271,7 +527,7 @@ export default function AssetLibraryPage() {
             animate="show"
             className="grid grid-cols-2 gap-3 p-5 sm:grid-cols-3 lg:grid-cols-5"
           >
-            {shown.map((a) => {
+            {ranked.map((a) => {
               const bad = problemsByAsset[a.id] ?? []
               return (
                 <motion.button
@@ -279,7 +535,10 @@ export default function AssetLibraryPage() {
                   variants={fadeItem}
                   whileHover={{ y: -2 }}
                   onClick={() => setSelectedId(a.id)}
-                  className="group overflow-hidden rounded-xl border border-border bg-card text-left shadow-sm transition-colors hover:border-primary/50"
+                  className={cn(
+                    'group overflow-hidden rounded-xl border border-border bg-card text-left shadow-sm transition-colors hover:border-primary/50',
+                    hitIds.has(a.id) && 'ring-2 ring-primary',
+                  )}
                 >
                   <div
                     className="relative flex h-[92px] items-center justify-center border-b border-border p-2"
@@ -291,7 +550,7 @@ export default function AssetLibraryPage() {
                     }}
                   >
                     <img src={api.imageRawUrl(a.id)} alt={a.name} className="max-h-full max-w-full object-contain" />
-                    <span className="absolute inset-0 flex items-center justify-center gap-1.5 bg-background/70 text-[12px] font-medium opacity-0 backdrop-blur-[2px] transition-opacity group-hover:opacity-100">
+                    <span className="absolute inset-0 flex items-center justify-center gap-1.5 bg-background/70 text-sm font-medium opacity-0 backdrop-blur-[2px] transition-opacity group-hover:opacity-100">
                       <Icon name="eye" size={14} />
                       查看
                     </span>
@@ -306,12 +565,12 @@ export default function AssetLibraryPage() {
 
                   <div className="space-y-1.5 p-2.5">
                     <div className="flex items-center gap-1.5">
-                      <span className="truncate text-[12.5px] font-medium" title={a.name}>
+                      <span className="truncate text-sm font-medium" title={a.name}>
                         {a.name}
                       </span>
                       <Icon name="pencil" size={11} className="ml-auto shrink-0 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100" />
                     </div>
-                    <div className="flex items-center gap-1.5 font-mono text-[10.5px] text-muted-foreground">
+                    <div className="flex items-center gap-1.5 font-mono text-2xs text-muted-foreground">
                       <span>
                         {a.width}×{a.height}
                       </span>
@@ -354,7 +613,7 @@ export default function AssetLibraryPage() {
         open={!!blocked}
         onOpenChange={(v) => !v && setBlocked(null)}
         icon="warning"
-        destructive
+        tone="warn"
         title="这张图正在被使用"
         desc={blocked?.message}
         confirmText="强制删除"
@@ -363,7 +622,7 @@ export default function AssetLibraryPage() {
       >
         <div className="max-h-[200px] space-y-0 divide-y divide-border overflow-y-auto rounded-lg border border-border">
           {blocked?.refs.map((r, i) => (
-            <div key={i} className="flex items-center gap-2 px-3 py-2 text-[12.5px]">
+            <div key={i} className="flex items-center gap-2 px-3 py-2 text-sm">
               <Icon name="link" size={13} className="shrink-0 text-muted-foreground" />
               <span className="font-medium">{r.instanceName}</span>
               <span className="text-muted-foreground">
@@ -372,7 +631,7 @@ export default function AssetLibraryPage() {
             </div>
           ))}
         </div>
-        <p className="text-[12.5px] leading-relaxed text-muted-foreground">
+        <p className="text-sm leading-relaxed text-muted-foreground">
           强制删除会把上面这些指令里的引用一并清空，那些指令需要重新选图。
         </p>
       </ConfirmDialog>

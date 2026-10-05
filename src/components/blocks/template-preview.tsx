@@ -76,16 +76,16 @@ export function TemplatePreview({
   return (
     <div className="rounded-md border border-border bg-muted/40 p-3">
       <div className="mb-2 flex items-center justify-between gap-2">
-        <span className="text-[12px] font-medium text-muted-foreground">预览</span>
+        <span className="text-sm font-medium text-muted-foreground">预览</span>
         {!!excelPath && (
-          <Button variant="ghost" size="sm" className="h-6 px-2 text-[12px]" disabled={recheck.loading} onClick={runRecheck}>
+          <Button variant="ghost" size="sm" className="h-6 px-2 text-sm" disabled={recheck.loading} onClick={runRecheck}>
             <Icon name="refresh" size={12} />
             {recheck.loading ? '复核中…' : '用真表头复核'}
           </Button>
         )}
       </div>
 
-      <div className="rounded border border-border bg-background px-2.5 py-2 text-[12.5px] leading-relaxed whitespace-pre-wrap break-all">
+      <div className="rounded border border-border bg-background px-2.5 py-2 text-sm leading-relaxed whitespace-pre-wrap break-all">
         {pieces.map((p, i) => (
           <span key={i} className={cn(p.bad && 'bg-destructive/10 text-destructive underline decoration-dotted')}>
             {p.text}
@@ -96,7 +96,7 @@ export function TemplatePreview({
       {issues.length > 0 && (
         <ul className="mt-2 space-y-1">
           {issues.map((m) => (
-            <li key={m} className="flex gap-1.5 text-[12px] text-destructive">
+            <li key={m} className="flex gap-1.5 text-sm text-destructive">
               <Icon name="warning" size={12} className="mt-[3px] shrink-0" />
               {m}
             </li>
@@ -105,23 +105,23 @@ export function TemplatePreview({
       )}
 
       {!columns.length && (
-        <p className="mt-2 text-[12px] text-muted-foreground">上传 Excel 后可在这里看到渲染效果</p>
+        <p className="mt-2 text-sm text-muted-foreground">上传 Excel 后可在这里看到渲染效果</p>
       )}
 
       {!!rendered && (
         <div className="mt-2">
-          <div className="mb-1 text-[11.5px] text-muted-foreground">第 {row.row_no ?? 2} 行渲染结果</div>
-          <div className="rounded border border-border bg-background px-2.5 py-2 text-[12.5px] leading-relaxed whitespace-pre-wrap break-all">
+          <div className="mb-1 text-xs text-muted-foreground">第 {row.row_no ?? 2} 行渲染结果</div>
+          <div className="rounded border border-border bg-background px-2.5 py-2 text-sm leading-relaxed whitespace-pre-wrap break-all">
             {rendered}
           </div>
         </div>
       )}
 
-      {recheck.error && <p className="mt-2 text-[12px] text-destructive">复核失败：{recheck.error}</p>}
+      {recheck.error && <p className="mt-2 text-sm text-destructive">复核失败：{recheck.error}</p>}
       {!recheck.loading && !recheck.error && recheck.issues.length > 0 && (
         <ul className="mt-2 space-y-1">
           {recheck.issues.map((m) => (
-            <li key={m} className="flex gap-1.5 text-[12px] text-destructive">
+            <li key={m} className="flex gap-1.5 text-sm text-destructive">
               <Icon name="warning" size={12} className="mt-[3px] shrink-0" />
               {m}
             </li>
@@ -129,7 +129,7 @@ export function TemplatePreview({
         </ul>
       )}
       {!recheck.loading && !recheck.error && recheck.done && recheck.issues.length === 0 && (
-        <p className="mt-2 flex items-center gap-1.5 text-[12px] text-muted-foreground">
+        <p className="mt-2 flex items-center gap-1.5 text-sm text-muted-foreground">
           <Icon name="check" size={12} />
           引擎按真表头复核：没问题
         </p>

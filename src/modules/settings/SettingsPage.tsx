@@ -12,6 +12,10 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { Icon } from '@/components/icon'
 import { PageHeader } from '@/components/blocks/page-header'
+import { Switch } from '@/components/ui/switch'
+import { Input } from '@/components/ui/input'
+import { api, type DailySummaryStatus } from '@/lib/api'
+import { useAttendantStore } from '@/stores/attendantStore'
 import { hasElectron, ipc } from '@/lib/ipc'
 import { THEME_LABEL, THEME_MODES } from '@/lib/theme'
 import type { ThemeMode } from '@/lib/theme'
@@ -41,6 +45,41 @@ export default function SettingsPage() {
   const { isPending, isError, isSuccess } = useInstances()
   const engine = engineStatusOf({ isPending, isError, isSuccess })
   const { conflicts, failed } = useHotkeySync()
+  const autoFillVars = useAttendantStore((s) => s.autoFillVars)
+  const setAutoFillVars = useAttendantStore((s) => s.setAutoFillVars)
+
+  // 每日汇总播报状态
+  const [summary, setSummary] = useState<DailySummaryStatus | null>(null)
+  const [sending, setSending] = useState(false)
+  const [sendMsg, setSendMsg] = useState('')
+  useEffect(() => {
+    api.dailySummary().then(setSummary).catch(() => {})
+  }, [])
+  const dailyEnabled = summary?.enabled ?? false
+  const dailySendTime = summary?.sendTime ?? '18:00'
+  const refreshSummary = () => api.dailySummary().then(setSummary).catch(() => {})
+  const toggleDaily = () => {
+    api.saveDailySummary({ enabled: !dailyEnabled }).then(setSummary).catch(() => {})
+  }
+  const onTimeChange = (v: string) => {
+    api.saveDailySummary({ sendTime: v }).then(setSummary).catch(() => {})
+  }
+  const sendNow = async () => {
+    setSending(true)
+    setSendMsg('')
+    try {
+      const res = await api.sendDailySummary()
+      setSendMsg(res.sent ? `已发送（${res.date}）` : dailyReasonText(res.reason))
+      await refreshSummary()
+    } catch (e) {
+      setSendMsg('发送失败：' + (e instanceof Error ? e.message : '未知错误'))
+    } finally {
+      setSending(false)
+    }
+  }
+  const retryNow = () => {
+    api.retryDailySummary().then(refreshSummary).catch(() => {})
+  }
 
   useEffect(() => {
     ipc.userData().then(setDataDir)
@@ -52,7 +91,7 @@ export default function SettingsPage() {
   const conflictByAccel = new Map(conflicts.map((c) => [`${c.action}:${c.accel}`, c]))
 
   return (
-    <div className="mx-auto max-w-[1240px] space-y-4 p-5">
+    <div className="mx-auto max-w-[1240px] space-y-5 p-5">
       <PageHeader icon="settings" title="设置" desc="外观、快捷键、引擎与数据的全局偏好；修改即时生效" />
 
       <motion.div variants={staggerList} initial="hidden" animate="show" className="grid grid-cols-12 gap-4">
@@ -77,14 +116,14 @@ export default function SettingsPage() {
                     >
                       <ThemePreview mode={m} />
                       <div className="mt-2.5 flex items-center gap-2">
-                        <span className="text-[13px] font-medium">{THEME_LABEL[m]}</span>
+                        <span className="text-base font-medium">{THEME_LABEL[m]}</span>
                         {mode === m && <Badge variant="default">当前</Badge>}
                       </div>
-                      <div className="mt-1 text-[11.5px] leading-relaxed text-muted-foreground">{THEME_DESC[m]}</div>
+                      <div className="mt-1 text-xs leading-relaxed text-muted-foreground">{THEME_DESC[m]}</div>
                     </button>
                   ))}
                 </div>
-                <p className="text-[12px] leading-relaxed text-muted-foreground">
+                <p className="text-sm leading-relaxed text-muted-foreground">
                   主题同时作用于控制台与所有实例窗口，选择会记住，下次打开保持一致。
                 </p>
               </CardContent>
@@ -99,7 +138,7 @@ export default function SettingsPage() {
                   <Icon name="keyboard" size={14} className="text-muted-foreground" />
                   快捷键
                 </CardTitle>
-                <span className="text-[12px] text-muted-foreground">{list.length} 个实例</span>
+                <span className="text-sm text-muted-foreground">{list.length} 个实例</span>
               </CardHeader>
               <CardContent className="space-y-4">
                 {/* 这是用户最关心的一件事，直接在页面上把规则写清楚 */}
@@ -163,7 +202,7 @@ export default function SettingsPage() {
                           <TableRow key={i.id}>
                             <TableCell>
                               <div className="font-medium">{i.name}</div>
-                              <div className="mt-0.5 font-mono text-[11.5px] text-muted-foreground">{i.id}</div>
+                              <div className="mt-0.5 font-mono text-xs text-muted-foreground">{i.id}</div>
                             </TableCell>
                             {HOTKEY_ACTIONS.map((action) => (
                               <KeyCell
@@ -173,7 +212,7 @@ export default function SettingsPage() {
                                 failed={failed.includes(hk[action])}
                               />
                             ))}
-                            <TableCell className="text-[12.5px] text-muted-foreground">{HOTKEY_SCOPE_LABEL[hk.scope]}</TableCell>
+                            <TableCell className="text-sm text-muted-foreground">{HOTKEY_SCOPE_LABEL[hk.scope]}</TableCell>
                             <TableCell className="text-right">
                               <Button variant="ghost" size="sm" asChild>
                                 <Link to={`/instances`} title="热键在实例窗口的「配置」里修改">
@@ -186,7 +225,7 @@ export default function SettingsPage() {
                       })}
                       {!list.length && (
                         <TableRow className="hover:bg-transparent">
-                          <TableCell colSpan={2 + HOTKEY_ACTIONS.length} className="py-8 text-center text-[12.5px] text-muted-foreground">
+                          <TableCell colSpan={2 + HOTKEY_ACTIONS.length} className="py-8 text-center text-sm text-muted-foreground">
                             还没有实例；新建实例后这里会列出它的快捷键。
                           </TableCell>
                         </TableRow>
@@ -198,7 +237,7 @@ export default function SettingsPage() {
                 <Separator />
 
                 <div className="space-y-2">
-                  <div className="text-[12.5px] font-medium text-muted-foreground">窗口内快捷键（不占用系统按键）</div>
+                  <div className="text-sm font-medium text-muted-foreground">窗口内快捷键（不占用系统按键）</div>
                   <div className="grid gap-2 sm:grid-cols-2">
                     {[
                       { keys: ['Ctrl', 'S'], desc: '在实例配置页保存当前配置' },
@@ -211,11 +250,82 @@ export default function SettingsPage() {
                             <Kbd key={k}>{k}</Kbd>
                           ))}
                         </span>
-                        <span className="text-[12.5px] text-muted-foreground">{r.desc}</span>
+                        <span className="text-sm text-muted-foreground">{r.desc}</span>
                       </div>
                     ))}
                   </div>
                 </div>
+              </CardContent>
+            </Card>
+          </motion.div>
+
+          {/* ── 话术速查（坐席助手偏好） ── */}
+          <motion.div variants={fadeItem}>
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Icon name="sparkles" size={14} className="text-muted-foreground" />
+                  话术速查
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="flex items-center justify-between gap-4 rounded-lg border border-border bg-muted/40 px-3 py-2.5">
+                  <div className="space-y-0.5">
+                    <div className="text-sm font-medium">插入时自动填变量</div>
+                    <div className="text-xs leading-relaxed text-muted-foreground">
+                      插入带 {'{客户名}'} / {'{订单号}'} 的话术时，自动从你框住的客户消息里推断并替掉；推断不出仍保留占位符。
+                    </div>
+                  </div>
+                  <Switch checked={autoFillVars} onCheckedChange={setAutoFillVars} />
+                </div>
+              </CardContent>
+            </Card>
+          </motion.div>
+
+          {/* ── 每日汇总播报（工单 04 · ⑥） ── */}
+          <motion.div variants={fadeItem}>
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Icon name="bell" size={14} className="text-muted-foreground" />
+                  每日汇总播报
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <div className="flex items-center justify-between gap-4 rounded-lg border border-border bg-muted/40 px-3 py-2.5">
+                  <div className="space-y-0.5">
+                    <div className="text-sm font-medium">每日自动播报违禁词</div>
+                    <div className="text-xs leading-relaxed text-muted-foreground">
+                      到点把当天违禁词命中汇总推到「通知」里已配置的 IM 机器人；断网会待补发，恢复后自动重发。
+                    </div>
+                  </div>
+                  <Switch checked={dailyEnabled} onCheckedChange={toggleDaily} />
+                </div>
+                <div className="flex flex-wrap items-center gap-3">
+                  <span className="text-sm text-muted-foreground">发送时刻</span>
+                  <Input type="time" value={dailySendTime} onChange={(e) => onTimeChange(e.target.value)} className="w-32" />
+                  <div className="flex-1" />
+                  <Button variant="outline" size="sm" disabled={sending} onClick={() => void sendNow()}>
+                    <Icon name="arrowRight" size={13} />
+                    立即发送
+                  </Button>
+                  {summary && summary.pending.length > 0 && (
+                    <Button variant="ghost" size="sm" onClick={() => retryNow()}>
+                      <Icon name="refresh" size={13} />
+                      重试未发送（{summary.pending.length}）
+                    </Button>
+                  )}
+                </div>
+                {(sendMsg || (summary && (summary.lastSentDate || summary.pending.length > 0))) && (
+                  <p className="text-xs text-muted-foreground">
+                    {sendMsg || (
+                      <>
+                        上次发送：{summary?.lastSentDate || '尚未发送'}
+                        {summary && summary.pending.length > 0 && ` · 待补发 ${summary.pending.length} 天`}
+                      </>
+                    )}
+                  </p>
+                )}
               </CardContent>
             </Card>
           </motion.div>
@@ -232,14 +342,14 @@ export default function SettingsPage() {
                   <Badge variant={engineTag}>
                     {engine === 'ok' ? '已连接' : engine === 'down' ? '未连接' : '检测中'}
                   </Badge>
-                  <span className="font-mono text-[12.5px] text-muted-foreground">127.0.0.1:{ENGINE_PORT}</span>
+                  <span className="font-mono text-sm text-muted-foreground">127.0.0.1:{ENGINE_PORT}</span>
                   <div className="flex-1" />
                   <Button variant="outline" size="sm" onClick={() => qc.invalidateQueries({ queryKey: ['instances'] })}>
                     <Icon name="refresh" size={13} />
                     重新检测
                   </Button>
                 </div>
-                <p className="text-[12.5px] leading-relaxed text-muted-foreground">
+                <p className="text-sm leading-relaxed text-muted-foreground">
                   引擎是随应用一起启动的本地服务，负责执行实例、读写 Excel 与素材库。应用退出时它一起关闭，不需要单独安装 Python。
                 </p>
                 {engine === 'down' && (
@@ -259,8 +369,8 @@ export default function SettingsPage() {
               </CardHeader>
               <CardContent className="space-y-3">
                 <div className="space-y-1.5">
-                  <div className="text-[12.5px] font-medium text-muted-foreground">数据目录</div>
-                  <div className="break-all rounded-lg border border-border bg-muted/50 px-3 py-2 font-mono text-[11.5px]">
+                  <div className="text-sm font-medium text-muted-foreground">数据目录</div>
+                  <div className="break-all rounded-lg border border-border bg-muted/50 px-3 py-2 font-mono text-xs">
                     {dataDir || '（浏览器预览下不可用）'}
                   </div>
                 </div>
@@ -274,7 +384,7 @@ export default function SettingsPage() {
                     定位
                   </Button>
                 </div>
-                <p className="text-[12px] leading-relaxed text-muted-foreground">
+                <p className="text-sm leading-relaxed text-muted-foreground">
                   实例配置、运行记录与图像素材都存在这里，备份时整个目录拷走即可。
                 </p>
               </CardContent>
@@ -286,7 +396,7 @@ export default function SettingsPage() {
               <CardHeader>
                 <CardTitle>关于</CardTitle>
               </CardHeader>
-              <CardContent className="space-y-2 text-[13px]">
+              <CardContent className="space-y-2 text-base">
                 {[
                   ['产品', 'AutoPlay Studio'],
                   ['版本', APP_VERSION],
@@ -306,12 +416,27 @@ export default function SettingsPage() {
   )
 }
 
+function dailyReasonText(r?: string): string {
+  switch (r) {
+    case 'disabled':
+      return '功能未开启'
+    case 'no_webhook':
+      return '未配置 IM 机器人地址'
+    case 'already_sent':
+      return '今天已发送过'
+    case 'webhook_failed':
+      return '发送失败，已加入待补发'
+    default:
+      return r || '已完成'
+  }
+}
+
 function KeyCell({ accel, conflict, failed }: { accel: string; conflict: boolean; failed: boolean }) {
   const bad = conflict || failed
   return (
     <TableCell>
       <span className="flex items-center gap-1.5">
-        <Kbd className={bad ? 'border-[hsl(var(--warn)/0.5)] text-[hsl(var(--warn))]' : undefined}>{formatAccel(accel)}</Kbd>
+        <Kbd className={bad ? 'border-warn/50 text-warn' : undefined}>{formatAccel(accel)}</Kbd>
         <AnimatePresence>
           {bad && (
             <motion.span initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
@@ -321,7 +446,7 @@ function KeyCell({ accel, conflict, failed }: { accel: string; conflict: boolean
                     <Icon
                       name={failed ? 'error' : 'warning'}
                       size={13}
-                      className={failed ? 'text-destructive' : 'text-[hsl(var(--warn))]'}
+                      className={failed ? 'text-destructive' : 'text-warn'}
                     />
                   </span>
                 </TooltipTrigger>

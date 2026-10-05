@@ -200,11 +200,11 @@ export default function ImagePicker({
                       <img src={api.imageRawUrl(a.id)} alt={a.name} className="max-h-full max-w-full object-contain" />
                     </div>
                     <div className="space-y-1 p-2">
-                      <div className="truncate text-[12px] font-medium" title={a.name}>
+                      <div className="truncate text-sm font-medium" title={a.name}>
                         {a.name}
                       </div>
                       <div className="flex flex-wrap items-center gap-1">
-                        <span className="font-mono text-[10.5px] text-muted-foreground">
+                        <span className="font-mono text-2xs text-muted-foreground">
                           {a.width}×{a.height}
                         </span>
                         {current && <Badge variant="default">当前</Badge>}
@@ -222,7 +222,7 @@ export default function ImagePicker({
         </ScrollArea>
 
         <div className="flex items-center gap-2 border-t border-border pt-3">
-          <span className="text-[11.5px] text-muted-foreground">
+          <span className="text-xs text-muted-foreground">
             改名、调阈值、删除素材请到素材库；这里只负责挑一张。
           </span>
           <div className="flex-1" />

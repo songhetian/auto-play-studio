@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { AssetInUseError, api, resolveEngineOrigin } from '@/lib/api'
+import { AssetInUseError, api, logStreamUrl, resolveEngineOrigin } from '@/lib/api'
 
 /** 记录发出去的请求，并按需要回一个响应 —— 用来钉住「接口的 URL / 动词 / 载荷」 */
 function stubFetch(reply: (url: string, init?: RequestInit) => { status?: number; body?: unknown }) {
@@ -184,12 +184,38 @@ describe('引擎报的错原样带到界面', () => {
 })
 
 describe('引擎地址解析（打包/开发）', () => {
-  it('打包后是 file:// 协议，走本机引擎绝对地址', () => {
-    expect(resolveEngineOrigin('file:')).toBe('http://127.0.0.1:8731')
+  it('打包后是 file:// 协议，走本机引擎绝对地址，端口来自 preload 注入', () => {
+    expect(resolveEngineOrigin('file:', 9001)).toBe('http://127.0.0.1:9001')
   })
 
   it('开发态走同源相对路径（Vite 代理转发 /api 与 /ws）', () => {
-    expect(resolveEngineOrigin('http:')).toBe('')
+    expect(resolveEngineOrigin('http:', 9001)).toBe('')
+  })
+
+  it('拿不到注入的端口时回退默认端口，而不是拼出 undefined', () => {
+    expect(resolveEngineOrigin('file:', null)).toBe('http://127.0.0.1:8731')
+  })
+})
+
+describe('日志 WebSocket 地址', () => {
+  /*
+   * 引擎的 WS 路由注册在 api router 上、又挂在 `/api` 前缀之下（`app.mount("/api", api)`），
+   * 真实路径是 `/api/ws/instances/{id}/logs`。
+   * 前端曾经连 `/ws/...`（少了 /api）→ 404，运行详情页的实时日志整条链路失效。
+   */
+  it('带 /api 前缀，与引擎挂载路径一致', () => {
+    expect(logStreamUrl('I1')).toContain('/api/ws/instances/I1/logs')
+  })
+})
+
+describe('对比表客户端', () => {
+  it('删除对比表走 DELETE /api/instances/{id}/compare/table?name=...', async () => {
+    const calls = stubFetch(() => ({ body: { ok: true } }))
+
+    await api.removeCompareTable('R1', 'b2.xlsx')
+
+    expect(calls[0].url).toBe('/api/instances/R1/compare/table?name=b2.xlsx')
+    expect(calls[0].init?.method).toBe('DELETE')
   })
 })
 
@@ -231,5 +257,53 @@ describe('崩溃恢复客户端', () => {
     expect(r.recovered).toBe(1)
     expect(r.plans[0].to).toBe('idle')
     expect(r.plans[0].done).toBe(3)
+  })
+})
+
+describe('速查填入客户端（/api/assist）', () => {
+  it('读目标走 GET /api/assist/target', async () => {
+    const calls = stubFetch(() => ({ body: { target: null } }))
+
+    await api.assistTarget()
+
+    expect(calls[0].url).toBe('/api/assist/target')
+    expect(calls[0].init?.method ?? 'GET').toBe('GET')
+  })
+
+  it('存目标走 PUT，载荷就是目标本身', async () => {
+    const calls = stubFetch(() => ({ body: { target: null } }))
+    const target = { window: '千牛', x: 1, y: 2, width: 30, height: 4 }
+
+    await api.saveAssistTarget(target)
+
+    expect(calls[0].url).toBe('/api/assist/target')
+    expect(calls[0].init?.method).toBe('PUT')
+    expect(JSON.parse(String(calls[0].init?.body))).toEqual(target)
+  })
+
+  it('填入把话术放在 text 字段里 POST /api/assist/fill', async () => {
+    const calls = stubFetch(() => ({ body: { filled: true, window: '千牛' } }))
+
+    await api.assistFill('运费由商家承担')
+
+    expect(calls[0].url).toBe('/api/assist/fill')
+    expect(calls[0].init?.method).toBe('POST')
+    expect(JSON.parse(String(calls[0].init?.body))).toEqual({ text: '运费由商家承担' })
+  })
+
+  it('窗口候选走 GET /api/assist/windows', async () => {
+    const calls = stubFetch(() => ({ body: { windows: [], reason: '' } }))
+
+    await api.assistWindows()
+
+    expect(calls[0].url).toBe('/api/assist/windows')
+  })
+
+  it('填入被挡下来时，把引擎那句中文原样抛出来给用户看', async () => {
+    // 「屏幕正被「跑批任务A」占用…」这种事必须让用户看见 —— 换成
+    // `POST /api/assist/fill failed: 409` 他只会来问这个报错是什么意思
+    stubFetch(() => ({ status: 409, body: { detail: '屏幕正被「跑批任务A」占用' } }))
+
+    await expect(api.assistFill('您好')).rejects.toThrow(/跑批任务A/)
   })
 })

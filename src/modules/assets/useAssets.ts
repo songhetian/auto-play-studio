@@ -65,4 +65,13 @@ export function useDeleteAsset() {
   })
 }
 
+/** 视频抽帧：均匀抽成图像素材入库，成功後刷新素材库与实例引用 */
+export function useExtractVideo() {
+  const refresh = useRefresh()
+  return useMutation({
+    mutationFn: (file: File) => api.extractVideo(file),
+    onSuccess: refresh,
+  })
+}
+
 export type { ImageAsset }

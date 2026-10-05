@@ -6,10 +6,14 @@
   "main": "dist-electron/main.js",
   "scripts": {
     "dev": "vite",
+    "dev:engine": "python -m uvicorn engine.main:app --app-dir python --port 8731",
+    "dev:web": "node scripts/dev-web.mjs",
+    "preview": "node scripts/screenshot.mjs",
     "dev:electron": "npm run build:electron && electron .",
-    "build:electron": "tsc -p tsconfig.electron.json && node -e \"require('fs').copyFileSync('electron/region.html','dist-electron/region.html')\"",
+    "build:electron": "tsc -p tsconfig.electron.json && node -e \"const fs=require('fs');fs.copyFileSync('electron/region.html','dist-electron/region.html');fs.copyFileSync('electron/tray.png','dist-electron/tray.png')\"",
     "build:engine": "python -m PyInstaller --name autoplay-engine --distpath dist-engine --workpath build-engine --specpath build-engine --paths python --paths notic --collect-submodules engine --collect-submodules uvicorn --collect-submodules app --hidden-import mss --noconfirm --clean python/run_engine.py",
-    "build": "tsc -b && npm run build:electron && npm run build:engine && vite build && electron-builder",
+    "fetch:kb-model": "python python/scripts/fetch_kb_model.py",
+    "build": "tsc -b && npm run build:electron && npm run build:engine && vite build && npm run fetch:kb-model && electron-builder",
     "build:renderer": "vite build",
     "engine": "python -m uvicorn engine.main:app --app-dir python --port 8731",
     "typecheck": "tsc --noEmit && tsc -p tsconfig.electron.json --noEmit",
@@ -80,6 +84,10 @@
       {
         "from": "dist-engine/autoplay-engine",
         "to": "engine"
+      },
+      {
+        "from": "python/engine/kb/models",
+        "to": "engine/models"
       }
     ],
     "win": {

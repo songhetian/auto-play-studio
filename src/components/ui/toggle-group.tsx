@@ -25,8 +25,8 @@ const toggleGroupItemVariants = cva(
   {
     variants: {
       size: {
-        default: 'h-7 px-3 text-[12.5px]',
-        sm: 'h-6 px-2.5 text-[12px]',
+        default: 'h-7 px-3 text-sm',
+        sm: 'h-6 px-2.5 text-sm',
       },
     },
     defaultVariants: { size: 'default' },

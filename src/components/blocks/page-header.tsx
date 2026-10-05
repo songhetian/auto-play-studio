@@ -31,8 +31,8 @@ export function PageHeader({
         </span>
       )}
       <div className="min-w-0">
-        <h1 className="text-[16px] font-medium leading-tight tracking-tight">{title}</h1>
-        {desc && <p className="mt-1 max-w-[62ch] text-[12.5px] leading-relaxed text-muted-foreground">{desc}</p>}
+        <h1 className="text-lg font-medium leading-tight tracking-tight">{title}</h1>
+        {desc && <p className="mt-1 max-w-[62ch] text-sm leading-relaxed text-muted-foreground">{desc}</p>}
       </div>
       <div className="flex-1" />
       {actions && <div className="flex flex-wrap items-center gap-2">{actions}</div>}

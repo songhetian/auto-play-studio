@@ -1,14 +1,36 @@
 import { z } from 'zod'
 
 import { HOTKEY_ACTION_LABEL, formatAccel, normalizeAccel } from '@/lib/hotkey'
+import { alertSoundSchema } from '@/lib/alertSound'
 import { normalizeCombo } from '@/lib/keys'
 import { templateIssues } from '@/lib/template'
 
 /** 指令类型与工具类型 */
-export const toolTypeSchema = z.enum(['rpa', 'monitor', 'logi', 'cmp', 'macro'])
+export const toolTypeSchema = z.enum(['rpa', 'monitor', 'logi', 'cmp', 'macro', 'guard'])
 export type ToolType = z.infer<typeof toolTypeSchema>
 
-export const cmdTypeSchema = z.enum(['win', 'key', 'text', 'mouse', 'img', 'flow'])
+/**
+ * 指令类型。
+ *
+ * 引擎（`python/engine/commands.py`）支持的就是这一份，两边必须对得上 ——
+ * 多一个前端能选、引擎不认的类型，点「开始」才会在运行时报「不支持的指令类型」；
+ * 少一个则用户根本没法在界面里搭出来。
+ */
+export const cmdTypeSchema = z.enum([
+  'win', // 切换窗口
+  'key', // 按键 / 组合键
+  'text', // 输入文本
+  'img', // 找图并点击
+  'flow', // 等待若干秒
+  'mouse', // 在坐标点击（左/右/中键、双击）
+  'move', // 移动鼠标（悬停出菜单）
+  'scroll', // 滚轮
+  'drag', // 拖拽
+  'clip', // 剪贴板（复制 / 粘贴）
+  'shot', // 截图存文件
+  'waitimg', // 等图片出现（只等不点）
+  'screen', // 屏幕信息（分辨率 / 鼠标位置）
+])
 
 /** 一条指令：参数是自由结构，由各类型自己的 schema 校验 */
 export const cmdSchema = z.object({
@@ -30,6 +52,7 @@ export const cmdSchema = z.object({
     .object({
       combo: z.array(z.string()).min(1),
       delayMs: z.number().int().min(0).default(120),
+      /** 连按几次（每次之间停 delayMs）——与指令顶层的 `repeat` 是两件事 */
       repeat: z.number().int().min(1).default(1),
     })
     // 键名走**白名单**：认不出来就在保存时拦住。放过去的话运行期
@@ -40,6 +63,24 @@ export const cmdSchema = z.object({
       if (reason) ctx.addIssue({ code: z.ZodIssueCode.custom, message: `按键不合法：${reason}`, path: ['combo'] })
     })
     .optional(),
+
+  /**
+   * 整条指令重复几遍（通用能力：点三次提交、发三条消息）。
+   * **故意不给 .default()**：加了 default 之后 z.infer 会把它变成必填，
+   * 于是所有老存档/测试里的字面量指令都得补这个字段才能过类型 ——
+   * 而"不填就是 1 遍"本来就该是引擎的行为，不该逼调用方写出来。
+   */
+  repeat: z.number().int().min(1).max(999).optional(),
+
+  /** 点击方式：left/right/middle；配合 clicks=2 即双击 */
+  button: z.enum(['left', 'right', 'middle']).optional(),
+  /** 点击次数：2 = 双击，3 = 三击（全选一段） */
+  clicks: z.number().int().min(1).max(3).optional(),
+
+  /** 剪贴板动作：复制 / 粘贴 / 复制并粘贴 / 读取 */
+  action: z.string().optional(),
+  /** 剪贴板要复制的内容（支持 {列名} 变量） */
+  text: z.string().optional(),
 })
 /** 指令类型决定必填参数：缺了这些参数，执行到一半才会失败，不如在保存时就拦住 */
 .superRefine((c, ctx) => {
@@ -127,6 +168,8 @@ export const rpaConfigSchema = z.object({
   to: z.number().int().min(1).default(1),
   retry: z.number().int().min(0).default(2),
   onFail: z.enum(['continue', 'pause']).default('continue'),
+  /** 每行发送间隔(ms)：节流，避免发送过快被目标程序风控/限流。0 表示不节流 */
+  sendIntervalMs: z.number().int().min(0).max(10000).default(500),
   skipSuccess: z.boolean().default(true),
   writeReason: z.boolean().default(true),
   backup: z.boolean().default(true),
@@ -192,6 +235,14 @@ export const siteAdapterSchema = z.object({
   result: z.string(),
   status: z.string(),
   trace: z.string(),
+  /**
+   * **存在即表示"这个站自动识别快递公司"**（如快递100 聚合站）。
+   * 值是空字符串，含义是"无需手选公司"，所以引擎侧必须用 `in site` 判断而不是真值判断。
+   * 官网直查时带上 `company`（公司代号）+ `company_state`（该站的物流状态选择器）。
+   */
+  company_select: z.string().optional(),
+  company: z.string().optional(),
+  company_state: z.string().optional(),
 })
 
 export const logiConfigSchema = z.object({
@@ -204,6 +255,16 @@ export const logiConfigSchema = z.object({
   refStatus: z.string().optional(),
   /** ② 网页自动化所需站点适配器 */
   site: siteAdapterSchema.optional(),
+  /**
+   * 输出目录：留空表示「与原文件同目录」。
+   *
+   * 默认不填是有意的 —— 输出位置跟着原文件走最不容易出错；
+   * 用户显式改了就用他指定的目录。
+   */
+  outDir: z.string().optional(),
+  /** ③ 快递100 接口：客户号与密钥。缺任一项时接口方式不可用（自检会明确指出） */
+  apiKey: z.string().default(''),
+  customer: z.string().default(''),
   intervalMs: z.number().int().min(800).default(1500),
   retry: z.number().int().min(0).default(2),
   pauseOnCaptcha: z.boolean().default(true),
@@ -251,6 +312,28 @@ export type CmpConfig = z.infer<typeof cmpConfigSchema>
  * 它描述的是「这个实例怎么被键盘控制」，跟工具本身做什么无关；
  * 放在各分支里会让读取方（主进程注册表、设置页）必须知道四种嵌套路径，很容易读漏。
  */
+/**
+ * 敏感词监控（guard）的工具参数。
+ *
+ * 危级用三档而不是"是否告警"：违禁词不是二元问题 ——
+ * "加微信"和"最"这个程度差别很大，一律弹窗等于把告警当噪音，最后用户会关掉它。
+ */
+export const guardConfigSchema = z.object({
+  /** 怎么读文本：auto 先 UIA 失败降级剪贴板；uia 只读 UIA；clipboard 只读剪贴板 */
+  captureMode: z.enum(['auto', 'uia', 'clipboard']).default('auto'),
+  /**
+   * 是否允许降级为读取剪贴板。
+   *
+   * 默认开启：京麦 / 钉钉 / 飞鸽这类自绘客户端不暴露标准 UIA，
+   * 关掉它等于这些软件完全没法监控。但它是敏感操作，界面上必须做成可见开关。
+   */
+  allowClipboard: z.boolean().default(true),
+  /** 哪些危级要告警：默认全开 */
+  levels: z.array(z.enum(['high', 'mid', 'low'])).default(['high', 'mid', 'low']),
+  /** 轮询间隔（下限 300ms：太密会拖慢前台软件，客服打字都会卡） */
+  pollMs: z.number().int().min(300).max(10000).default(800),
+})
+
 export const instanceConfigSchema = z.discriminatedUnion('tool', [
   z.object({
     tool: z.literal('rpa'),
@@ -269,6 +352,19 @@ export const instanceConfigSchema = z.discriminatedUnion('tool', [
     tool: z.literal('monitor'),
     region: z.string(),
     rules: z.array(z.object({ assetId: z.string(), threshold: z.number() })),
+    /** 每个实例单独一套告警声音（静音 / 语音 / 铃声 / 自定义音频） */
+    alertSound: alertSoundSchema,
+    hotkeys: hotkeyMapSchema.default(DEFAULT_HOTKEYS),
+  }),
+  z.object({
+    tool: z.literal('guard'),
+    /** 目标窗口：没绑定就不知道该读哪个输入框，所以必填 */
+    window: z.string().min(1),
+    // .default({}) 而不是必填：老存档里根本没有 guard 段（功能是后来加的），
+    // 缺字段就崩等于升级即数据全废
+    guard: guardConfigSchema.default({}),
+    /** 每个实例单独一套告警声音（与图片监控同一套） */
+    alertSound: alertSoundSchema.default({}),
     hotkeys: hotkeyMapSchema.default(DEFAULT_HOTKEYS),
   }),
   z.object({ tool: z.literal('logi'), logi: logiConfigSchema, hotkeys: hotkeyMapSchema.default(DEFAULT_HOTKEYS) }),

@@ -25,6 +25,7 @@ const rpaInstance = (id: string): Instance => ({
       to: 50,
       retry: 2,
       onFail: 'continue',
+      sendIntervalMs: 500,
       skipSuccess: true,
       writeReason: true,
       backup: true,
@@ -112,6 +113,8 @@ describe('配置修改', () => {
           file: 'a.xlsx',
           colWaybill: '物流单号',
           provider: 'excel',
+          apiKey: '',
+          customer: '',
           retry: 2,
           intervalMs: 1500,
           pauseOnCaptcha: true,
@@ -194,6 +197,41 @@ describe('配置修改', () => {
   it('不存在的实例上修改配置不应抛错', () => {
     expect(() => useInstanceStore.getState().patchConfig('NOPE', {} as any)).not.toThrow()
     expect(() => useInstanceStore.getState().setCmds('NOPE', [])).not.toThrow()
+  })
+
+  it('非法 patch 被拒写：类型不对的值不会进 store', () => {
+    const s = useInstanceStore.getState()
+    s.upsert(rpaInstance('R1'))
+    const before = useInstanceStore.getState().instances.R1
+
+    // 数字输入框给字符串是很常见的一类脏数据：存进去要等到执行时才炸
+    s.patchConfig('R1', { rpa: { from: '3' } } as any)
+
+    expect(useInstanceStore.getState().instances.R1).toBe(before)
+  })
+
+  it('非法 patch 被拒写：混进别的工具的字段', () => {
+    const s = useInstanceStore.getState()
+    s.upsert(rpaInstance('R1'))
+
+    // 拿错实例 id 就会写成这样：rpa 实例收到 logi 的 patch
+    s.patchConfig('R1', { logi: { file: 'a.xlsx' } } as any)
+    expect((useInstanceStore.getState().instances.R1.config as any).logi).toBeUndefined()
+
+    s.patchConfig('R1', { windwo: '微信' } as any)
+    expect((useInstanceStore.getState().instances.R1.config as any).windwo).toBeUndefined()
+  })
+
+  it('跨字段规则不在这里拦：行区间暂时填反仍然写得进去', () => {
+    const s = useInstanceStore.getState()
+    s.upsert(rpaInstance('R1'))
+
+    // to < from 由配置页的字段级校验提示并禁用保存，不该在写入点冻结输入框
+    s.patchConfig('R1', { rpa: { from: 10, to: 2 } })
+
+    const cfg = useInstanceStore.getState().instances.R1.config as any
+    expect(cfg.rpa.from).toBe(10)
+    expect(cfg.rpa.to).toBe(2)
   })
 })
 

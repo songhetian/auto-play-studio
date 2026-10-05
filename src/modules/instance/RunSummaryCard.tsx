@@ -2,10 +2,12 @@ import { useQuery } from '@tanstack/react-query'
 import { motion } from 'motion/react'
 import { api } from '@/lib/api'
 import { pendingCsv, pendingFileName } from '@/lib/summaryCsv'
+import { downloadTextFile } from '@/lib/download'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Icon } from '@/components/icon'
+import { toast } from '@/stores/toastStore'
 import { fadeUp } from '@/lib/motion'
 
 /**
@@ -28,38 +30,33 @@ export default function RunSummaryCard({ id, name, running }: { id: string; name
   if (!data) return null
 
   const exportCsv = () => {
-    const url = URL.createObjectURL(new Blob([pendingCsv(data.pending)], { type: 'text/csv;charset=utf-8' }))
-    const a = document.createElement('a')
-    a.href = url
-    a.download = pendingFileName(name)
-    a.click()
-    // 立刻回收：blob 一直挂着会占内存，而下载已经开始了
-    URL.revokeObjectURL(url)
+    downloadTextFile(pendingFileName(name), pendingCsv(data.pending))
+    toast.success(`已导出 ${data.pending.length} 行待人工确认清单`)
   }
 
   return (
     <motion.div variants={fadeUp} initial="hidden" animate="show">
       <Card>
         <CardHeader className="pb-2">
-          <CardTitle className="flex flex-wrap items-center gap-2 text-[13.5px]">
+          <CardTitle className="flex flex-wrap items-center gap-2 text-base">
             本轮结论
             {data.pending.length > 0 && <Badge variant="warning">{data.pending.length} 行要人工补</Badge>}
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-3">
-          <div className="text-[13.5px]">{data.headline}</div>
+          <div className="text-base">{data.headline}</div>
 
           {data.reasons.length > 0 && (
             <div className="space-y-1.5">
-              <div className="text-[12.5px] text-muted-foreground">失败原因（按出现次数）</div>
+              <div className="text-sm text-muted-foreground">失败原因（按出现次数）</div>
               {data.reasons.map((r, i) => (
                 <div key={`${r.label}-${i}`} className="flex items-start gap-2.5 rounded-lg border border-border p-2.5">
                   <Badge variant="destructive" className="mt-0.5 shrink-0">
                     {r.count} 行
                   </Badge>
                   <div className="min-w-0">
-                    <div className="text-[13px] leading-relaxed">{r.label}</div>
-                    <div className="mt-0.5 font-mono text-[11.5px] text-muted-foreground">
+                    <div className="text-base leading-relaxed">{r.label}</div>
+                    <div className="mt-0.5 font-mono text-xs text-muted-foreground">
                       第 {r.rows.slice(0, 8).join('、')}
                       {r.rows.length > 8 ? ` 等 ${r.rows.length} 行` : ' 行'}
                     </div>
@@ -67,7 +64,7 @@ export default function RunSummaryCard({ id, name, running }: { id: string; name
                 </div>
               ))}
               {data.otherReasons > 0 && (
-                <div className="text-[12.5px] text-muted-foreground">另有 {data.otherReasons} 类各只出现了一次，不单独列</div>
+                <div className="text-sm text-muted-foreground">另有 {data.otherReasons} 类各只出现了一次，不单独列</div>
               )}
             </div>
           )}
@@ -78,7 +75,7 @@ export default function RunSummaryCard({ id, name, running }: { id: string; name
                 <Icon name="download" size={14} />
                 导出待人工确认清单
               </Button>
-              <span className="text-[12.5px] text-muted-foreground">
+              <span className="text-sm text-muted-foreground">
                 一行一条：行号、主键、失败原因。照着行号回原表里补
               </span>
             </div>

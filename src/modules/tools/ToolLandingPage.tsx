@@ -43,7 +43,7 @@ export default function ToolLandingPage() {
   const tool = toolById(toolId)
 
   return (
-    <div className="mx-auto max-w-[1240px] space-y-4 p-5">
+    <div className="mx-auto max-w-[1240px] space-y-5 p-5">
       <PageHeader
         icon={tool.icon}
         title={
@@ -66,7 +66,7 @@ export default function ToolLandingPage() {
           <Card className="overflow-hidden">
             <CardHeader>
               <CardTitle>该工具的实例</CardTitle>
-              <span className="text-[12px] text-muted-foreground">{list.length} 个</span>
+              <span className="text-sm text-muted-foreground">{list.length} 个</span>
             </CardHeader>
             {list.length ? (
               <InstanceTable list={list} showTool={false} />
@@ -96,8 +96,8 @@ export default function ToolLandingPage() {
             </CardHeader>
             <CardContent className="space-y-3">
               {tool.hints.map((h, i) => (
-                <div key={i} className="flex gap-3 text-[12.5px] leading-relaxed">
-                  <span className="mt-px flex size-[18px] flex-none items-center justify-center rounded-full bg-muted font-mono text-[10.5px] text-muted-foreground">
+                <div key={i} className="flex gap-3 text-sm leading-relaxed">
+                  <span className="mt-px flex size-[18px] flex-none items-center justify-center rounded-full bg-muted font-mono text-2xs text-muted-foreground">
                     {i + 1}
                   </span>
                   <span className="text-foreground/90">{h}</span>
@@ -112,7 +112,7 @@ export default function ToolLandingPage() {
                 <Icon name="fileText" size={14} className="text-muted-foreground" />
                 从方案新建
               </CardTitle>
-              <span className="text-[12px] text-muted-foreground">套一份现成配置，省掉重配</span>
+              <span className="text-sm text-muted-foreground">套一份现成配置，省掉重配</span>
             </CardHeader>
             <CardContent className="space-y-2">
               {plans.length ? (
@@ -130,7 +130,7 @@ export default function ToolLandingPage() {
                   </Button>
                 ))
               ) : (
-                <p className="text-[12.5px] text-muted-foreground">
+                <p className="text-sm text-muted-foreground">
                   还没有方案。先建一个实例、配好它，再到配置页「另存为方案」。
                 </p>
               )}

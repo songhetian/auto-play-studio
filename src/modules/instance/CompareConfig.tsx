@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { motion } from 'motion/react'
 import { api } from '@/lib/api'
 import { useInstanceStore } from '@/stores/instanceStore'
+import { toast } from '@/stores/toastStore'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -58,23 +59,34 @@ export default function CompareConfig({ id }: { id: string }) {
     mutationFn: ({ role, file }: { role: 'primary' | 'other'; file: File }) => api.uploadCompareTable(id, role, file),
     onSuccess: async (table, vars) => {
       await qc.invalidateQueries({ queryKey: ['instances'] })
+      toast.success(`已上传对比表「${table.name}」`)
       if (vars.role === 'other') {
         const res = await api.autoMap(id, table.name)
         setMaps(res.maps)
         await qc.invalidateQueries({ queryKey: ['instances'] })
       }
     },
+    onError: (e: Error) => toast.error(e.message),
   })
 
   const removeTableMut = useMutation({
-    mutationFn: (name: string) =>
-      fetch(`/api/instances/${id}/compare/table?name=${encodeURIComponent(name)}`, { method: 'DELETE' }).then((r) => r.json()),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['instances'] }),
+    // 走 api 层（内部用 BASE 拼绝对地址）：打包后渲染进程是 file://，
+    // 相对路径 `/api/...` 会被解析成 file:///api/... 而必然失败
+    mutationFn: (name: string) => api.removeCompareTable(id, name),
+    onSuccess: (_res, name) => {
+      qc.invalidateQueries({ queryKey: ['instances'] })
+      toast.success(`已移除对比表「${name}」`)
+    },
+    onError: (e: Error) => toast.error(e.message),
   })
 
   const autoMapMut = useMutation({
     mutationFn: () => api.autoMap(id),
-    onSuccess: (res) => setMaps(res.maps),
+    onSuccess: (res) => {
+      setMaps(res.maps)
+      toast.success('已自动匹配列')
+    },
+    onError: (e: Error) => toast.error(e.message),
   })
 
   const saveMut = useMutation({
@@ -84,7 +96,11 @@ export default function CompareConfig({ id }: { id: string }) {
         ...(inst!.config as Extract<InstanceConfig, { tool: 'cmp' }>),
         cmp: { ...cfg!, primaryFields: fields, tolerance, maps },
       }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['instances'] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['instances'] })
+      toast.success('比对配置已保存')
+    },
+    onError: (e: Error) => toast.error(e.message),
   })
 
   // ── 方案（全局库）：存的是「字段角色 + 列映射 + 容差」，换实例、换批文件都能套 ──
@@ -94,20 +110,24 @@ export default function CompareConfig({ id }: { id: string }) {
 
   const savePlanMut = useMutation({
     mutationFn: (name: string) => api.savePlan(id, name),
-    onSuccess: () => {
+    onSuccess: (res) => {
       setPlanName('')
       qc.invalidateQueries({ queryKey: ['plans'] })
+      toast.success(`已保存为方案「${res.name}」`)
     },
+    onError: (e: Error) => toast.error(e.message),
   })
 
   const applyPlanMut = useMutation({
     mutationFn: (planId: string) => api.applyPlan(id, planId),
-    onSuccess: () => {
+    onSuccess: (res) => {
       // 播种以「A 表变了」为信号，而载入方案并不换文件 ——
       // 不把种子清掉，界面上会一直显示载入前的旧角色
       seeded.current = ''
       qc.invalidateQueries({ queryKey: ['instances'] })
+      toast.success(`已载入方案「${res.name}」`)
     },
+    onError: (e: Error) => toast.error(e.message),
   })
 
   if (!inst || !cfg) {
@@ -138,7 +158,7 @@ export default function CompareConfig({ id }: { id: string }) {
         <Badge variant="secondary" className="font-mono">
           {inst.id}
         </Badge>
-        <span className="text-[12px] text-muted-foreground">
+        <span className="text-sm text-muted-foreground">
           以 A 表为基准，逐行与 B/C 表核对；列名不同也能靠智能匹配对上
         </span>
         <div className="flex-1" />
@@ -162,7 +182,7 @@ export default function CompareConfig({ id }: { id: string }) {
           <Card>
             <CardHeader>
               <CardTitle>A 表（基准表）</CardTitle>
-              <span className="text-[12px] text-muted-foreground">所有行以它为准</span>
+              <span className="text-sm text-muted-foreground">所有行以它为准</span>
             </CardHeader>
             <CardContent>
               <Dropzone
@@ -170,7 +190,7 @@ export default function CompareConfig({ id }: { id: string }) {
                 onFile={(f) => uploadMut.mutate({ role: 'primary', file: f })}
                 hint="上传后自动识别列名，并为每列猜一个字段类型"
               />
-              <div className="mt-3 text-[12px] text-muted-foreground">
+              <div className="mt-3 text-sm text-muted-foreground">
                 当前文件：<span className="font-medium text-foreground">{primaryName}</span>
               </div>
             </CardContent>
@@ -179,7 +199,7 @@ export default function CompareConfig({ id }: { id: string }) {
           <Card className="overflow-hidden">
             <CardHeader>
               <CardTitle>字段角色与列映射</CardTitle>
-              <span className="text-[12px] text-muted-foreground">
+              <span className="text-sm text-muted-foreground">
                 主键 {keyCount} 个 · 对比 {fields.length - keyCount} 个
               </span>
             </CardHeader>
@@ -236,7 +256,7 @@ export default function CompareConfig({ id }: { id: string }) {
                         return (
                           <TableCell key={t}>
                             <Select value={col || NO_MAP} onValueChange={(v) => setMap(t, f.name, v === NO_MAP ? '' : v)}>
-                              <SelectTrigger className={matched ? undefined : '!border-[hsl(var(--warn)/0.6)]'}>
+                              <SelectTrigger className={matched ? undefined : '!border-warn/60'}>
                                 <SelectValue />
                               </SelectTrigger>
                               <SelectContent>
@@ -283,8 +303,8 @@ export default function CompareConfig({ id }: { id: string }) {
               {tableNames.map((t) => (
                 <div key={t} className="flex items-center gap-2 border-b border-border py-2 last:border-0">
                   <div className="min-w-0 flex-1">
-                    <div className="truncate text-[13px]">{t}</div>
-                    <div className="text-[11.5px] text-muted-foreground">{tables[t].columns.length} 列</div>
+                    <div className="truncate text-base">{t}</div>
+                    <div className="text-xs text-muted-foreground">{tables[t].columns.length} 列</div>
                   </div>
                   <Button
                     variant="ghost"
@@ -297,7 +317,7 @@ export default function CompareConfig({ id }: { id: string }) {
                   </Button>
                 </div>
               ))}
-              {!tableNames.length && <div className="text-[12.5px] text-muted-foreground">还没有对比表</div>}
+              {!tableNames.length && <div className="text-sm text-muted-foreground">还没有对比表</div>}
             </CardContent>
           </Card>
 
@@ -315,7 +335,7 @@ export default function CompareConfig({ id }: { id: string }) {
                   onChange={(e) => setTolerance(Number(e.target.value) || 0)}
                 />
               </Field>
-              <div className="space-y-1.5 border-t border-border pt-3 text-[12.5px] leading-relaxed text-muted-foreground">
+              <div className="space-y-1.5 border-t border-border pt-3 text-sm leading-relaxed text-muted-foreground">
                 <div>
                   · 主键命中但在对比表里找不到 → <span className="font-medium text-foreground">缺失</span>
                 </div>
@@ -333,11 +353,11 @@ export default function CompareConfig({ id }: { id: string }) {
           <Card>
             <CardHeader>
               <CardTitle>方案</CardTitle>
-              <span className="text-[12px] text-muted-foreground">存进全局库，别的实例也能用</span>
+              <span className="text-sm text-muted-foreground">存进全局库，别的实例也能用</span>
             </CardHeader>
             <CardContent className="space-y-3">
               {!cfg?.primaryFile ? (
-                <p className="text-[12px] text-muted-foreground">先上传 A 表（基准表），才能存方案或载入方案。</p>
+                <p className="text-sm text-muted-foreground">先上传 A 表（基准表），才能存方案或载入方案。</p>
               ) : (
                 <>
                   <div className="space-y-1.5">
@@ -364,7 +384,7 @@ export default function CompareConfig({ id }: { id: string }) {
                         {applyPlanMut.isPending ? '载入中…' : '载入'}
                       </Button>
                     </div>
-                    <p className="text-[11.5px] text-muted-foreground">
+                    <p className="text-xs text-muted-foreground">
                       按主表名匹配：换成另一张 A 表时方案不生效，免得容差这类口径张冠李戴。
                     </p>
                   </div>
@@ -391,7 +411,7 @@ export default function CompareConfig({ id }: { id: string }) {
               )}
 
               {(savePlanMut.isSuccess || applyPlanMut.isSuccess) && (
-                <div className="flex items-center gap-1.5 text-[11.5px] text-muted-foreground">
+                <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
                   <Icon name="check" size={12} />
                   {savePlanMut.isSuccess ? `已保存为「${savePlanMut.data.name}」` : `已载入「${applyPlanMut.data?.name}」`}
                 </div>
@@ -418,7 +438,7 @@ export default function CompareConfig({ id }: { id: string }) {
                   {ready ? '配置已就绪，可以执行对比' : '还需要：A 表 + 至少一个主键 + 至少一个对比字段'}
                 </AlertDescription>
               </Alert>
-              <p className="text-[12px] text-muted-foreground">
+              <p className="text-sm text-muted-foreground">
                 执行请到「运行详情」页 —— 配置页只改数据，不触发运行。
               </p>
             </CardContent>

@@ -130,7 +130,7 @@ export function AssetDetailDialog({
             <NavArrow dir="next" disabled={!hasNext} onClick={() => go(1)} />
 
             {idx >= 0 && (
-              <span className="absolute bottom-3 left-1/2 -translate-x-1/2 rounded-full border border-border bg-card/90 px-2 py-0.5 font-mono text-[11px] text-muted-foreground backdrop-blur">
+              <span className="absolute bottom-3 left-1/2 -translate-x-1/2 rounded-full border border-border bg-card/90 px-2 py-0.5 font-mono text-xs text-muted-foreground backdrop-blur">
                 {idx + 1} / {list.length}
               </span>
             )}
@@ -139,7 +139,7 @@ export function AssetDetailDialog({
           {/* ── 属性 ── */}
           <div className="space-y-3.5">
             <div className="space-y-1.5">
-              <label className="text-[12.5px] font-medium text-muted-foreground" htmlFor="asset-name">
+              <label className="text-sm font-medium text-muted-foreground" htmlFor="asset-name">
                 素材名称
               </label>
               <Input
@@ -160,7 +160,7 @@ export function AssetDetailDialog({
             </div>
 
             <div className="space-y-1.5">
-              <label className="text-[12.5px] font-medium text-muted-foreground" htmlFor="asset-tag">
+              <label className="text-sm font-medium text-muted-foreground" htmlFor="asset-tag">
                 标签
               </label>
               <Input
@@ -187,7 +187,7 @@ export function AssetDetailDialog({
                         setTag(t)
                         onUpdate({ tag: t })
                       }}
-                      className="rounded-md border border-border px-1.5 py-0.5 text-[11px] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                      className="rounded-md border border-border px-1.5 py-0.5 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
                     >
                       {t}
                     </button>
@@ -198,8 +198,8 @@ export function AssetDetailDialog({
 
             <div className="space-y-2">
               <div className="flex items-center justify-between">
-                <span className="text-[12.5px] font-medium text-muted-foreground">推荐相似度阈值</span>
-                <span className="font-mono text-[12.5px]">{asset?.threshold.toFixed(2)}</span>
+                <span className="text-sm font-medium text-muted-foreground">推荐相似度阈值</span>
+                <span className="font-mono text-sm">{asset?.threshold.toFixed(2)}</span>
               </div>
               <Slider
                 min={0.5}
@@ -208,27 +208,27 @@ export function AssetDetailDialog({
                 value={[asset?.threshold ?? 0.85]}
                 onValueChange={([v]) => asset && onUpdate({ threshold: v })}
               />
-              <p className="text-[11.5px] leading-relaxed text-muted-foreground">
+              <p className="text-xs leading-relaxed text-muted-foreground">
                 新建图像指令选它时的初始值。指令上还能各自再调，互不影响。
               </p>
             </div>
 
             {refs && refs.length > 0 && (
               <div className="rounded-lg border border-border bg-muted/40 p-2.5">
-                <div className="text-[12px] font-medium">正在被这些指令使用</div>
+                <div className="text-sm font-medium">正在被这些指令使用</div>
                 <ul className="mt-1 space-y-1">
                   {refs.slice(0, 4).map((r, i) => (
-                    <li key={i} className="text-[11.5px] leading-relaxed text-muted-foreground">
+                    <li key={i} className="text-xs leading-relaxed text-muted-foreground">
                       {r.instanceName} · 第 {r.cmdIndex + 1} 条「{r.cmdName}」
                     </li>
                   ))}
                 </ul>
-                {refs.length > 4 && <div className="mt-1 text-[11px] text-muted-foreground">…等 {refs.length} 处</div>}
+                {refs.length > 4 && <div className="mt-1 text-xs text-muted-foreground">…等 {refs.length} 处</div>}
               </div>
             )}
 
             <div className="flex items-center gap-2 pt-0.5">
-              <span className="font-mono text-[11px] text-muted-foreground">{asset?.id}</span>
+              <span className="font-mono text-xs text-muted-foreground">{asset?.id}</span>
               <div className="flex-1" />
               <Button variant="ghost" size="sm" onClick={() => asset && void navigator.clipboard?.writeText(asset.id)}>
                 <Icon name="copy" size={12} />
@@ -239,7 +239,7 @@ export function AssetDetailDialog({
         </div>
 
         <div className="flex items-center gap-2 border-t border-border pt-4">
-          <span className="flex items-center gap-1.5 text-[11.5px] text-muted-foreground">
+          <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
             <Kbd>←</Kbd>
             <Kbd>→</Kbd>
             切换素材

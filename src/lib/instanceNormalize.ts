@@ -53,6 +53,25 @@ export function normalizeInstance(raw: unknown): Instance {
       const cfg = inst.config
       return { ...inst, config: { ...cfg, rules: cfg.rules ?? [], hotkeys } }
     }
+    case 'guard': {
+      const cfg = inst.config
+      // guard 段也是后加的：老存档里没有它，配置页直接读 guard.levels / guard.captureMode
+      // 会当场白屏。这里补齐默认值（与 schemas/instance.ts 的 guardConfigSchema 一致）。
+      const g = cfg.guard
+      return {
+        ...inst,
+        config: {
+          ...cfg,
+          guard: {
+            captureMode: g?.captureMode ?? 'auto',
+            allowClipboard: g?.allowClipboard ?? true,
+            levels: g?.levels ?? ['high', 'mid', 'low'],
+            pollMs: g?.pollMs ?? 800,
+          },
+          hotkeys,
+        },
+      }
+    }
     default:
       return inst
   }

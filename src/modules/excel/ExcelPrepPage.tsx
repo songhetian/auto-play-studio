@@ -137,7 +137,7 @@ export default function ExcelPrepPage() {
   const columnNames = (report?.columns ?? []).filter((c): c is string => !!c)
 
   return (
-    <div className="mx-auto max-w-[1240px] space-y-4 p-5">
+    <div className="mx-auto max-w-[1240px] space-y-5 p-5">
       <PageHeader
         icon="sheet"
         title="Excel 体检与整理"
@@ -214,7 +214,7 @@ export default function ExcelPrepPage() {
       )}
 
       {path && !error && isFetching && !report && (
-        <Card className="p-6 text-[13px] text-muted-foreground">正在读表…</Card>
+        <Card className="p-6 text-base text-muted-foreground">正在读表…</Card>
       )}
 
       {path && report && (
@@ -294,7 +294,7 @@ function ReportBody({
       <motion.div variants={fadeItem}>
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-[13.5px]">按哪一列查重复</CardTitle>
+            <CardTitle className="text-base">按哪一列查重复</CardTitle>
           </CardHeader>
           <CardContent className="flex flex-wrap items-center gap-3">
             <Select value={keyCol} onValueChange={onKeyCol}>
@@ -309,7 +309,7 @@ function ReportBody({
                 ))}
               </SelectContent>
             </Select>
-            <span className="text-[12.5px] text-muted-foreground">
+            <span className="text-sm text-muted-foreground">
               {keyCol
                 ? '主键重复只保留第一行（有业务代价，默认不应用）'
                 : '还没选 —— 现在跳过「主键为空」「主键带空白」「主键重复」这三项判定'}
@@ -321,15 +321,15 @@ function ReportBody({
       <motion.div variants={fadeItem}>
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-[13.5px]">
+            <CardTitle className="text-base">
               体检结果
-              {ordered.length > 0 && <span className="ml-2 text-[12.5px] font-normal text-muted-foreground">{ordered.length} 条</span>}
+              {ordered.length > 0 && <span className="ml-2 text-sm font-normal text-muted-foreground">{ordered.length} 条</span>}
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-2">
             {ordered.length === 0 && (
-              <div className="flex items-center gap-2 text-[13px] text-muted-foreground">
-                <Icon name="success" size={15} className="text-[hsl(var(--ok))]" />
+              <div className="flex items-center gap-2 text-base text-muted-foreground">
+                <Icon name="success" size={15} className="text-ok" />
                 这一遍没看出问题：没有空行、没有重复行，主键也没有多余的空白
               </div>
             )}
@@ -342,8 +342,8 @@ function ReportBody({
                     {meta.label}
                   </Badge>
                   <div className="min-w-0">
-                    <div className="text-[13px] leading-relaxed">{issue.detail}</div>
-                    <div className="mt-0.5 text-[11.5px] text-muted-foreground">
+                    <div className="text-base leading-relaxed">{issue.detail}</div>
+                    <div className="mt-0.5 text-xs text-muted-foreground">
                       {where(issue)} · {meta.hint}
                     </div>
                   </div>
@@ -363,10 +363,10 @@ function ReportBody({
       <motion.div variants={fadeItem}>
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-[13.5px]">整理</CardTitle>
+            <CardTitle className="text-base">整理</CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
-            <div className="text-[12.5px] leading-relaxed text-muted-foreground">
+            <div className="text-sm leading-relaxed text-muted-foreground">
               出一份「原名_已整理.xlsx」，放在原文件旁边，原文件保持只读。整理后每一处改动都会列在下面，
               可以照着原表核对。
             </div>
@@ -374,7 +374,7 @@ function ReportBody({
             {risky.length > 0 && (
               <label className="flex cursor-pointer items-start gap-2.5 rounded-lg border border-border p-2.5">
                 <Switch checked={acceptRisk} onCheckedChange={onAcceptRisk} className="mt-0.5" />
-                <span className="text-[12.5px] leading-relaxed">
+                <span className="text-sm leading-relaxed">
                   <span className="font-medium text-foreground">主键重复只保留第一行（{risky.length} 条）</span>
                   <span className="block text-muted-foreground">
                     不勾选就不动它们。同一条工单做两遍意味着重复退款这类事，得你自己确认过再勾
@@ -388,7 +388,7 @@ function ReportBody({
                 <Icon name="wand" size={14} />
                 {cleaning ? '整理中…' : '整理出新文件'}
               </Button>
-              <span className="text-[12.5px] text-muted-foreground">
+              <span className="text-sm text-muted-foreground">
                 {willApply === 0
                   ? infos.length
                     ? '这一遍没有能自动处理的问题，只有提示'
@@ -412,10 +412,10 @@ function ChangeLogCard({ log, onOpen }: { log: PrepLog; onOpen: () => void }) {
     <motion.div variants={fadeItem} initial="hidden" animate="show">
       <Card>
         <CardHeader className="pb-2">
-          <CardTitle className="flex flex-wrap items-center gap-2 text-[13.5px]">
+          <CardTitle className="flex flex-wrap items-center gap-2 text-base">
             改动台账
             <Badge variant="success">{log.fileName}</Badge>
-            <span className="text-[12.5px] font-normal text-muted-foreground">
+            <span className="text-sm font-normal text-muted-foreground">
               删掉 {removed} 行{trimmed ? `、改了 ${trimmed} 处` : ''}；留下的 {log.rowsKept.length - 1} 行数据来自原文件的第{' '}
               {listNumbers(log.rowsKept.slice(1), 6)} 行
             </span>
@@ -423,7 +423,7 @@ function ChangeLogCard({ log, onOpen }: { log: PrepLog; onOpen: () => void }) {
         </CardHeader>
         <CardContent className="space-y-2">
           {log.changes.length === 0 && (
-            <div className="text-[13px] text-muted-foreground">这一遍没有改动 —— 输出文件与原文件内容一致</div>
+            <div className="text-base text-muted-foreground">这一遍没有改动 —— 输出文件与原文件内容一致</div>
           )}
 
           <div className="max-h-[320px] space-y-1.5 overflow-y-auto pr-1">
@@ -433,20 +433,20 @@ function ChangeLogCard({ log, onOpen }: { log: PrepLog; onOpen: () => void }) {
                   {c.col === 0 ? '删行' : '改值'}
                 </Badge>
                 <div className="min-w-0">
-                  <div className="font-mono text-[12px] text-muted-foreground">{changeTarget(c)}</div>
+                  <div className="font-mono text-sm text-muted-foreground">{changeTarget(c)}</div>
                   {c.col > 0 && (
                     /*
                      * `whitespace-pre-wrap` 是必须的：这一格改的往往就是空白，
                      * 而默认的 white-space 会把「  A005  → A005」折成「A005 → A005」——
                      * 看起来像什么都没改，台账就白留了。
                      */
-                    <div className="whitespace-pre-wrap text-[13px]">
+                    <div className="whitespace-pre-wrap text-base">
                       <span className="text-muted-foreground line-through">{cellText(c.before)}</span>
                       <span className="mx-1.5 text-muted-foreground">→</span>
                       <span>{cellText(c.after)}</span>
                     </div>
                   )}
-                  <div className="text-[12.5px] text-muted-foreground">{c.detail}</div>
+                  <div className="text-sm text-muted-foreground">{c.detail}</div>
                 </div>
               </div>
             ))}
@@ -463,7 +463,7 @@ function ChangeLogCard({ log, onOpen }: { log: PrepLog; onOpen: () => void }) {
                 下载
               </a>
             </Button>
-            <span className="text-[12.5px] text-muted-foreground">就在原文件旁边：{log.output}</span>
+            <span className="text-sm text-muted-foreground">就在原文件旁边：{log.output}</span>
           </div>
         </CardContent>
       </Card>

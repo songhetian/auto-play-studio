@@ -73,7 +73,7 @@ export function HotkeyEditor({
             ))}
           </SelectContent>
         </Select>
-        <p className="text-[11.5px] leading-relaxed text-muted-foreground">
+        <p className="text-xs leading-relaxed text-muted-foreground">
           {value.scope === 'window'
             ? '默认只作用于这个实例，别的实例不会被牵连。'
             : '会作用于同工具的全部实例 —— 比如一次把一批监控任务都停掉。'}
@@ -181,7 +181,7 @@ function HotkeyRecorder({
                   请按下要用的键…
                 </>
               ) : (
-                <Kbd className="border-0 bg-transparent px-0 text-[12.5px] text-current">{formatAccel(accel)}</Kbd>
+                <Kbd className="border-0 bg-transparent px-0 text-sm text-current">{formatAccel(accel)}</Kbd>
               )}
             </motion.span>
           </AnimatePresence>
@@ -196,13 +196,13 @@ function HotkeyRecorder({
       </div>
 
       {reason ? (
-        <p className="text-[11.5px] leading-relaxed text-destructive">{reason}</p>
+        <p className="text-xs leading-relaxed text-destructive">{reason}</p>
       ) : others.length ? (
-        <p className="text-[11.5px] leading-relaxed text-[hsl(var(--warn))]">
-          {others.join('、')} 也绑了这个键。按下时只会作用于其中一个（优先当前焦点窗口），不会一起生效 —— 想各自独立就换个键。
+        <p className="text-xs leading-relaxed text-warn">
+          按下时只会作用于其中一个（优先当前焦点窗口），不会一起生效；想各自独立就换个键。
         </p>
       ) : (
-        <p className="text-[11.5px] leading-relaxed text-muted-foreground">
+        <p className="text-xs leading-relaxed text-muted-foreground">
           {recording ? '按下想用的键即可录制。' : ACTION_DESC[action]}
         </p>
       )}

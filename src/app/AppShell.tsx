@@ -7,6 +7,8 @@ import { useNavStore } from '@/stores/navStore'
 import { useThemeStore } from '@/stores/themeStore'
 import { THEME_LABEL, THEME_MODES } from '@/lib/theme'
 import { useInstanceStore } from '@/stores/instanceStore'
+import { useReminderStore } from '@/stores/reminderStore'
+import { isDue } from '@/lib/reminderTime'
 import { engineStatusOf, useInstances } from '@/modules/console/useInstances'
 import { cn } from '@/lib/utils'
 import { Icon } from '@/components/icon'
@@ -20,6 +22,9 @@ import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { fadeItem, staggerList } from '@/lib/motion'
 import { useHotkeySync } from '@/modules/console/useHotkeySync'
+import { MonitorHitToaster } from '@/modules/alerts/MonitorHitToaster'
+import { Toaster } from '@/components/ui/toaster'
+import { ReminderWatcher } from '@/modules/reminders/ReminderWatcher'
 
 const ENGINE_PORT = 8731
 
@@ -52,6 +57,16 @@ export default function AppShell() {
   const searching = q.trim().length > 0
   const groups = useMemo(() => filterNav(q), [q])
   const active = activeNavItem(pathname)
+
+  // 顶栏铃铛角标：只数"此刻就该处理"的条数。30 秒一轮，和弹窗同一个节拍，
+  // 所以不会出现过期的红点，也不会白白每秒重渲染外壳。
+  const dueReminders = useReminderStore((s) => s.reminders)
+  const [now, setNow] = useState(() => new Date())
+  useEffect(() => {
+    const t = window.setInterval(() => setNow(new Date()), 30_000)
+    return () => window.clearInterval(t)
+  }, [])
+  const dueCount = useMemo(() => dueReminders.filter((r) => isDue(r, now)).length, [dueReminders, now])
 
   const countByTool = useMemo(() => {
     const m: Record<string, number> = {}
@@ -89,6 +104,11 @@ export default function AppShell() {
 
   return (
     <TooltipProvider delayDuration={350}>
+      <MonitorHitToaster />
+      {/* 通用提醒层：右上角浮出，任何页面/回调里 toast.xxx() 都能用 */}
+      <Toaster />
+      {/* 到期提醒弹窗挂在外壳顶层：切到哪个页面都拦得住，不会漏 */}
+      <ReminderWatcher />
       <div className="flex h-full">
         {/* ── 工具导轨 ───────────────────────────────────────── */}
         <motion.aside
@@ -97,13 +117,13 @@ export default function AppShell() {
           className="flex flex-none flex-col overflow-hidden border-r border-border bg-card"
         >
           <div className={cn('flex h-14 flex-none items-center gap-2.5 border-b border-border', rail ? 'justify-center px-0' : 'px-3.5')}>
-            <span className="flex size-8 flex-none items-center justify-center rounded-lg bg-primary text-[13px] font-medium text-primary-foreground">
+            <span className="flex size-8 flex-none items-center justify-center rounded-lg bg-primary text-base font-medium text-primary-foreground">
               A
             </span>
             {!rail && (
               <div className="min-w-0">
-                <div className="truncate text-[13.5px] font-medium leading-tight">AutoPlay Studio</div>
-                <div className="truncate text-[11px] leading-tight text-muted-foreground">桌面自动化工具箱</div>
+                <div className="truncate text-base font-medium leading-tight">AutoPlay Studio</div>
+                <div className="truncate text-xs leading-tight text-muted-foreground">桌面自动化工具箱</div>
               </div>
             )}
           </div>
@@ -157,27 +177,27 @@ export default function AppShell() {
                 />
               ))}
               {!groups.length && !rail && (
-                <div className="px-2.5 py-8 text-center text-[12.5px] text-muted-foreground">
+                <div className="px-2.5 py-8 text-center text-sm text-muted-foreground">
                   没有匹配「{q.trim()}」的功能
-                  <div className="mt-1 text-[11.5px]">试试 rpa / 物流 / 截图 / 主题</div>
+                  <div className="mt-1 text-xs">试试 rpa / 物流 / 截图 / 主题</div>
                 </div>
               )}
             </motion.nav>
           </ScrollArea>
 
           <div className={cn('flex-none border-t border-border', rail ? 'px-2 py-2.5' : 'px-3 py-3')}>
-            <div className={cn('flex items-center gap-2 text-[11px] text-muted-foreground', rail && 'justify-center')}>
+            <div className={cn('flex items-center gap-2 text-xs text-muted-foreground', rail && 'justify-center')}>
               <span className="relative flex size-2 flex-none">
                 <span
                   className={cn(
                     'absolute inline-flex h-full w-full rounded-full opacity-70',
-                    engine === 'ok' && 'animate-ping bg-[hsl(var(--ok))]',
+                    engine === 'ok' && 'animate-ping bg-ok',
                   )}
                 />
                 <span
                   className={cn(
                     'relative inline-flex size-2 rounded-full',
-                    engine === 'ok' ? 'bg-[hsl(var(--ok))]' : engine === 'down' ? 'bg-destructive' : 'bg-muted-foreground/50',
+                    engine === 'ok' ? 'bg-ok' : engine === 'down' ? 'bg-destructive' : 'bg-muted-foreground/50',
                   )}
                 />
               </span>
@@ -205,7 +225,7 @@ export default function AppShell() {
             >
               <Icon name={rail ? 'panelOpen' : 'panelClose'} size={16} />
             </Button>
-            <div className="flex min-w-0 items-center gap-1.5 text-[13px]">
+            <div className="flex min-w-0 items-center gap-1.5 text-base">
               <span className="text-muted-foreground">工具箱</span>
               <Icon name="chevronRight" size={13} className="text-muted-foreground/60" />
               <span className="font-medium">{active?.label ?? 'AutoPlay Studio'}</span>
@@ -214,7 +234,7 @@ export default function AppShell() {
             {hotkeyIssues > 0 && (
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <Button variant="ghost" size="sm" className="text-[hsl(var(--warn))]" asChild>
+                  <Button variant="ghost" size="sm" className="text-warn" asChild>
                     <Link to="/settings">
                       <Icon name="warning" size={14} />
                       {conflicts.length > 0 && <span>{conflicts.length} 处热键冲突</span>}
@@ -235,6 +255,26 @@ export default function AppShell() {
                 {runningCount} 个在跑
               </Badge>
             )}
+            {/* 提醒入口：角标只数"此刻就该处理"的条数，用红色警示 */}
+            <span className="relative">
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button variant="ghost" size="icon-sm" asChild>
+                    <Link to="/reminders" aria-label={dueCount > 0 ? `提醒，${dueCount} 条已到期` : '提醒'}>
+                      <Icon name="bell" size={15} />
+                    </Link>
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom">
+                  {dueCount > 0 ? `有 ${dueCount} 条提醒已到期，去处理` : '定时提醒'}
+                </TooltipContent>
+              </Tooltip>
+              {dueCount > 0 && (
+                <span className="pointer-events-none absolute -right-0.5 -top-0.5 flex min-w-[15px] items-center justify-center rounded-full bg-destructive px-1 text-2xs font-medium leading-[15px] text-destructive-foreground">
+                  {dueCount}
+                </span>
+              )}
+            </span>
             <ToggleGroup
               type="single"
               size="sm"
@@ -254,10 +294,11 @@ export default function AppShell() {
             <Outlet />
           </div>
 
-          <footer className="flex h-7 flex-none items-center gap-4 border-t border-border bg-card/60 px-5 text-[11.5px] text-muted-foreground">
+          <footer className="flex h-7 flex-none items-center gap-4 border-t border-border bg-card/60 px-5 text-xs text-muted-foreground">
             <span className="truncate">{active?.desc ?? '桌面自动化工具箱'}</span>
             <div className="flex-1" />
             <span className="flex items-center gap-1.5">
+              <Kbd>F8</Kbd> 开始
               <Kbd>F9</Kbd> 暂停 / 继续
               <Kbd>F10</Kbd> 停止
               <span className="text-muted-foreground/70">每个实例可单独改键，只作用于一个实例</span>
@@ -306,11 +347,11 @@ function NavGroupBlock({
       <button
         onClick={onToggle}
         aria-expanded={open}
-        className="flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-[11px] font-medium tracking-wide text-muted-foreground transition-colors hover:text-foreground"
+        className="flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-xs font-medium tracking-wide text-muted-foreground transition-colors hover:text-foreground"
       >
         <Icon name={open ? 'chevronDown' : 'chevronRight'} size={13} />
         <span>{group.label}</span>
-        <span className="ml-auto font-mono text-[10.5px] text-muted-foreground/60">{group.items.length}</span>
+        <span className="ml-auto font-mono text-2xs text-muted-foreground/60">{group.items.length}</span>
       </button>
 
       <AnimatePresence initial={false}>
@@ -343,7 +384,7 @@ function NavRow({ item, on, count, rail }: { item: NavItem; on: boolean; count: 
       // 验收脚本也只能靠 class 猜是哪一条
       aria-current={on ? 'page' : undefined}
       className={cn(
-        'group relative flex items-center gap-2.5 rounded-md text-[13px] transition-colors',
+        'group relative flex items-center gap-2.5 rounded-md text-base transition-colors',
         rail ? 'h-9 justify-center px-0' : 'px-2 py-1.5',
         on ? 'text-primary' : 'text-muted-foreground hover:bg-accent hover:text-foreground',
       )}
@@ -356,27 +397,20 @@ function NavRow({ item, on, count, rail }: { item: NavItem; on: boolean; count: 
           transition={{ duration: 0.2, ease: [0.22, 1, 0.36, 1] }}
         />
       )}
+      {/* 导航图标一律走中性底 + 主色高亮：工具品牌色只留在工具卡/数据点上，
+          不再铺彩色圆角图标块（既花哨又和选中态抢焦点） */}
       <span
         className={cn(
           'relative flex size-[22px] flex-none items-center justify-center rounded-md transition-colors',
-          !item.color && (on ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground group-hover:text-foreground'),
+          on ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground group-hover:text-foreground',
         )}
-        style={
-          item.color
-            ? on
-              ? { background: item.color, color: '#fff' }
-              : // 未选中也保留工具的品牌色（低透明度底 + 同色图标）：
-                // 工具箱靠颜色建立「哪个工具在哪」的肌肉记忆，全灰就白搭了
-                { background: `${item.color}1f`, color: item.color }
-            : undefined
-        }
       >
         <Icon name={item.icon} size={14} />
       </span>
       {!rail && (
         <>
           <span className="relative truncate">{item.label}</span>
-          {count > 0 && <span className="relative ml-auto flex-none font-mono text-[11px] text-muted-foreground">{count}</span>}
+          {count > 0 && <span className="relative ml-auto flex-none font-mono text-xs text-muted-foreground">{count}</span>}
         </>
       )}
     </Link>

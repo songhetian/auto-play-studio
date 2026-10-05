@@ -30,7 +30,7 @@ const STATUS_META: Record<CompareStatus, { text: string; badge: BadgeVariant; ce
   diff: { text: '不一致', badge: 'destructive', cell: 'bg-destructive/10 text-destructive' },
   missing: { text: '缺失', badge: 'default', cell: 'bg-primary/10 text-primary' },
   extra: { text: '多余', badge: 'secondary', cell: 'bg-muted text-muted-foreground' },
-  error: { text: '数据错误', badge: 'warning', cell: 'bg-[hsl(var(--warn)/0.12)] text-[hsl(var(--warn))]' },
+  error: { text: '数据错误', badge: 'warning', cell: 'bg-warn/12 text-warn' },
   unknown: { text: '—', badge: 'outline', cell: '' },
 }
 
@@ -146,9 +146,9 @@ export default function CompareRun({ id }: { id: string }) {
   return (
     <div className="space-y-4 p-5">
       <motion.div variants={fadeUp} initial="hidden" animate="show" className="flex flex-wrap items-center gap-3">
-        <h1 className="text-[16px] font-medium leading-tight">{inst.name}</h1>
+        <h1 className="text-lg font-medium leading-tight">{inst.name}</h1>
         <Badge variant={report ? 'success' : 'secondary'}>{report ? '已有结果' : '未执行'}</Badge>
-        <span className="text-[12px] text-muted-foreground">以 A 表为基准逐行核对，结果写入报告文件</span>
+        <span className="text-sm text-muted-foreground">以 A 表为基准逐行核对，结果写入报告文件</span>
         <div className="flex-1" />
         <Button
           variant="outline"
@@ -214,7 +214,7 @@ export default function CompareRun({ id }: { id: string }) {
               <Card>
                 <CardHeader>
                   <CardTitle>结论分布</CardTitle>
-                  <span className="text-[12px] text-muted-foreground">合计 {summary.total ?? 0} 行</span>
+                  <span className="text-sm text-muted-foreground">合计 {summary.total ?? 0} 行</span>
                 </CardHeader>
                 <div ref={pieRef} style={{ height: 260 }} />
               </Card>
@@ -223,7 +223,7 @@ export default function CompareRun({ id }: { id: string }) {
               <Card className="overflow-hidden">
                 <CardHeader>
                   <CardTitle>结果明细</CardTitle>
-                  <span className="text-[12px] text-muted-foreground">带底色的是差异单元格</span>
+                  <span className="text-sm text-muted-foreground">带底色的是差异单元格</span>
                 </CardHeader>
                 <div className="max-h-[520px] overflow-auto">
                   <Table style={{ minWidth: Math.max(760, (report.header.length + 1) * 130) }}>

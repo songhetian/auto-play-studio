@@ -234,10 +234,10 @@ function mask(value: unknown, arg: string): string {
     throw new TemplateError(`格式化器 mask 不认识「${kind}」，可用：id / phone / name`)
   }
 
-  if (kind === 'id' && text.length >= 8) {
+  if (kind === 'id' && text.length > 8) {
     return text.slice(0, 4) + '*'.repeat(text.length - 8) + text.slice(-4)
   }
-  if (kind === 'phone' && text.length >= 7) {
+  if (kind === 'phone' && text.length > 7) {
     return text.slice(0, 3) + '*'.repeat(text.length - 7) + text.slice(-4)
   }
 
@@ -248,11 +248,19 @@ function mask(value: unknown, arg: string): string {
 }
 
 /** `cut` / `pad` 的位数参数。写错就报错 —— 当成 0 位处理会把内容整段抹掉 */
+const MAX_WIDTH = 200
+
 function widthArg(arg: string, formatter: string): number {
   if (!/^\d+$/.test(arg)) {
     throw new TemplateError(`格式化器 ${formatter} 需要一个位数（例如 ${formatter}:8），收到「${arg}」`)
   }
-  return Number(arg)
+  const width = Number(arg)
+  // 上界保护：位数过大时 `padStart` 会抛 RangeError（不是 TemplateError），
+  // 于是保存校验会甩出一个用户看不懂的原生异常
+  if (width > MAX_WIDTH) {
+    throw new TemplateError(`格式化器 ${formatter} 的位数太大（${width}），最多 ${MAX_WIDTH}`)
+  }
+  return width
 }
 
 function cut(value: unknown, arg: string): string {
@@ -356,15 +364,26 @@ const FORMATTERS: Record<string, (value: unknown, arg: string) => string> = {
  * 兼容退路：先按竖线左边当列名查，查不到再拿整串原文查一次 ——
  * 于是「列名里真的带竖线」的老配置不会因为新语法而失效。
  */
+/**
+ * 只看**自有属性**，不看原型链。
+ *
+ * `'constructor' in values` 对任何普通对象都为真 —— 曾经因此让 `{constructor}`
+ * 渲染成 `function Object() { [native code] }`、`{值|constructor}` 静默原样输出，
+ * 「名字不认识就报错」的承诺被绕过。
+ */
+function hasOwn(obj: object, key: string): boolean {
+  return Object.prototype.hasOwnProperty.call(obj, key)
+}
+
 function lookup(raw: string, values: Record<string, unknown>): [unknown, string | null] {
   const at = raw.indexOf('|')
   if (at < 0) {
-    return raw in values ? [values[raw], null] : [MISSING, null]
+    return hasOwn(values, raw) ? [values[raw], null] : [MISSING, null]
   }
 
   const key = raw.slice(0, at).trim()
-  if (key in values) return [values[key], raw.slice(at + 1).trim()]
-  if (raw in values) return [values[raw], null] // 这压根不是格式化器，是一个含竖线的列名
+  if (hasOwn(values, key)) return [values[key], raw.slice(at + 1).trim()]
+  if (hasOwn(values, raw)) return [values[raw], null] // 这压根不是格式化器，是一个含竖线的列名
   return [MISSING, null]
 }
 
@@ -378,7 +397,9 @@ function applySpec(value: unknown, spec: string | null, raw: string): string {
 
   const at = spec.indexOf(':')
   const name = (at < 0 ? spec : spec.slice(0, at)).trim()
-  const formatter = FORMATTERS[name]
+  // 白名单查自有属性：`FORMATTERS['constructor']` 会命中 Object 函数（truthy），
+  // 于是静默原样输出；`__proto__` 更会被当成函数调用抛原生 TypeError
+  const formatter = hasOwn(FORMATTERS, name) ? FORMATTERS[name] : undefined
   if (!formatter) {
     throw new TemplateError(`未知的格式化器「${name}」，占位符 {${raw}} 无法替换`)
   }

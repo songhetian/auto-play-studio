@@ -133,7 +133,7 @@ export function KeyPicker({
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -4 }}
             transition={{ duration: 0.12 }}
-            className="flex items-center gap-2 rounded-md border border-primary/40 bg-primary/5 px-2.5 py-2 text-[12px] text-primary"
+            className="flex items-center gap-2 rounded-md border border-primary/40 bg-primary/5 px-2.5 py-2 text-sm text-primary"
           >
             <span className="size-1.5 flex-none animate-pulse rounded-full bg-primary" />
             {hint || '按下要用的组合键…（Esc 取消）'}
@@ -147,17 +147,17 @@ export function KeyPicker({
         否则「输入框空着、配置里却还有旧键」就自相矛盾了。
       */}
       <div className="flex min-h-5 flex-wrap items-center gap-1.5">
-        <span className="text-[11.5px] text-muted-foreground">{reason ? '实际生效：' : ''}</span>
+        <span className="text-xs text-muted-foreground">{reason ? '实际生效：' : ''}</span>
         {combo.length ? (
           comboTokens(combo).map((tk, i) => <Kbd key={`${tk}-${i}`}>{tk}</Kbd>)
         ) : (
-          <span className="text-[11.5px] text-muted-foreground">还没设置按键</span>
+          <span className="text-xs text-muted-foreground">还没设置按键</span>
         )}
-        {reason && <span className="text-[11.5px] leading-relaxed text-destructive">{reason}</span>}
+        {reason && <span className="text-xs leading-relaxed text-destructive">{reason}</span>}
       </div>
 
       <div className="space-y-1.5">
-        <div className="text-[11.5px] text-muted-foreground">常用</div>
+        <div className="text-xs text-muted-foreground">常用</div>
         <div className="flex flex-wrap gap-1.5">
           {PRESETS.map((c) => (
             <Button
@@ -167,7 +167,7 @@ export function KeyPicker({
               size="sm"
               disabled={disabled}
               // 用无空格的写法：与输入框里的格式一致，窄列下一行也能多放一个
-              className="h-6 px-2 font-mono text-[11.5px]"
+              className="h-6 px-2 font-mono text-xs"
               onClick={() => commit(c)}
             >
               {comboToText(c)}

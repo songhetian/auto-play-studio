@@ -3,6 +3,7 @@ import { motion } from 'motion/react'
 import type { KbFolder, KbHit } from '@/lib/api'
 import { hasFolderPicker, ipc } from '@/lib/ipc'
 import { highlightSegments, searchTerms } from '@/lib/kbFilter'
+import { cn } from '@/lib/utils'
 import { fadeItem, staggerList } from '@/lib/motion'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
@@ -11,7 +12,12 @@ import { Card, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Progress } from '@/components/ui/progress'
 import { Icon, type IconName } from '@/components/icon'
+import { KB_TABS, tabById, type KbTabId } from '@/modules/kb/kbTabs'
+import { AssistTargetBar } from '@/modules/kb/AssistTargetBar'
+import { useAssistFill } from '@/modules/kb/useAssist'
+import { toast } from '@/stores/toastStore'
 import { ConfirmDialog } from '@/components/blocks/confirm-dialog'
+import { FolderDrop } from '@/components/FolderDrop'
 import { EmptyState } from '@/components/blocks/empty-state'
 import { PageHeader } from '@/components/blocks/page-header'
 import { StatCard } from '@/components/blocks/stat-card'
@@ -75,6 +81,14 @@ export default function KbPage() {
   const [manualPath, setManualPath] = useState('')
   const [note, setNote] = useState('')
   const [pendingRemove, setPendingRemove] = useState<KbFolder | null>(null)
+  /**
+   * 资料管理 / 搜索浏览。
+   *
+   * 原来两类完全不同的场景挤在一个长滚动页里：进来先过一屏「怎么用」的说明，
+   * 搜索框还要往下滚才够得着。拆成两页后，**查资料的第一屏就是搜索框**。
+   * 归属规则见 `kbTabs.ts`（那里有测试守着）。
+   */
+  const [tab, setTab] = useState<KbTabId>('search')
   /** 反馈横幅在页面顶部。底部（注销文件夹）触发的动作，横幅会落在视口外 —— 用户以为没反应 */
   const noteRef = useRef<HTMLDivElement>(null)
 
@@ -87,6 +101,8 @@ export default function KbPage() {
   const reindex = useKbReindex()
   const clearHistory = useKbClearHistory()
   const openFile = useKbOpenFile()
+  /** 把某一段话术填进客服客户端输入框（不发送） */
+  const fill = useAssistFill()
 
   const folders = status?.folders ?? []
   const indexing = status?.indexing
@@ -116,6 +132,23 @@ export default function KbPage() {
     }
   }
 
+  /** 拖进来一批文件夹：逐个登记，失败的单独点名，不影响其它 */
+  const addMany = async (paths: string[]) => {
+    setNote('')
+    const done: string[] = []
+    const failed: string[] = []
+    for (const p of paths) {
+      try {
+        const r = await addFolder.mutateAsync(p)
+        done.push(r.folder?.name ?? p)
+      } catch (e) {
+        failed.push(`${p}：${(e as Error).message}`)
+      }
+    }
+    if (done.length) setNote(`已登记 ${done.length} 个文件夹：${done.join('、')}，正在后台索引…`)
+    if (failed.length) setNote((n) => [n, `以下 ${failed.length} 个失败：${failed.join('；')}`].filter(Boolean).join(' '))
+  }
+
   const onAdd = async () => {
     const picked = await ipc.selectFolder()
     if (!picked) return
@@ -129,6 +162,19 @@ export default function KbPage() {
     } catch (e) {
       setNote((e as Error).message)
     }
+  }
+
+  /**
+   * 把一段话术填进客服客户端的输入框。
+   *
+   * **不发送** —— 客服自己看着按发送键。这是整条链路里唯一的人工闸门，
+   * 也是它相比「自动回复」唯一安全的地方：错字在发出去之前就看见了。
+   */
+  const onFill = (text: string) => {
+    fill.mutate(text, {
+      onSuccess: (r) => toast.success(`已填进「${r.window}」的输入框，自己看一眼再发`),
+      onError: (e: Error) => toast.error(e.message),
+    })
   }
 
   const submit = (e: FormEvent) => {
@@ -158,12 +204,15 @@ export default function KbPage() {
     }
   }
 
+  const activeTab = tabById(tab)
+
   return (
-    <div className="mx-auto max-w-[1240px] space-y-4 p-5">
+    <div className="mx-auto max-w-[1240px] space-y-5 p-5">
       <PageHeader
         icon="database"
         title="知识库"
-        desc="把常查的资料文件夹登记进来，按内容或拼音找文件；命中后点一下就能用系统程序打开原文"
+        // 副标题跟着当前 Tab 走：两个 Tab 管的是完全不同的两件事
+        desc={activeTab.desc}
         actions={
           <>
             <Button
@@ -189,6 +238,38 @@ export default function KbPage() {
         }
       />
 
+      {/* 资料管理 / 搜索浏览：两个独立场景各占一个 Tab，不共用一条滚动流 */}
+      <div className="flex items-center gap-1 border-b border-border" role="tablist" aria-label="知识库分区">
+        {KB_TABS.map((t) => (
+          <button
+            key={t.id}
+            role="tab"
+            type="button"
+            aria-selected={tab === t.id}
+            onClick={() => setTab(t.id)}
+            className={cn(
+              '-mb-px flex items-center gap-1.5 border-b-2 px-3 pb-2 text-base transition-colors',
+              tab === t.id
+                ? 'border-primary font-medium text-foreground'
+                : 'border-transparent text-muted-foreground hover:text-foreground',
+            )}
+          >
+            <Icon name={t.icon} size={14} className={tab === t.id ? 'text-primary' : undefined} />
+            {t.label}
+          </button>
+        ))}
+        <div className="flex-1" />
+        <span className="pb-2 text-xs text-muted-foreground">
+          {tab === 'search' ? (
+            <>
+              已登记 <span className="font-mono text-foreground">{folders.length}</span> 个文件夹
+            </>
+          ) : (
+            '登记与索引配置'
+          )}
+        </span>
+      </div>
+
       {note && (
         <Alert ref={noteRef} variant="info">
           <Icon name="info" size={16} />
@@ -201,9 +282,10 @@ export default function KbPage() {
         </Alert>
       )}
 
-      {indexing?.running && (
+      {/* 索引进度与失败清单属于「资料管理」：它关心的是资料库状态，不是检索 */}
+      {tab === 'manage' && indexing?.running && (
         <Card className="p-4">
-          <div className="flex flex-wrap items-center gap-2 text-[12.5px]">
+          <div className="flex flex-wrap items-center gap-2 text-sm">
             <span className="flex size-6 items-center justify-center rounded-md bg-primary/10 text-primary">
               <Icon name="refresh" size={13} className="animate-spin" />
             </span>
@@ -213,7 +295,7 @@ export default function KbPage() {
             </span>
             <div className="flex-1" />
             {indexing.current && (
-              <span className="max-w-[320px] truncate font-mono text-[11.5px] text-muted-foreground" title={indexing.current}>
+              <span className="max-w-[320px] truncate font-mono text-xs text-muted-foreground" title={indexing.current}>
                 {indexing.current}
               </span>
             )}
@@ -226,12 +308,12 @@ export default function KbPage() {
         </Card>
       )}
 
-      {!!failed.length && (
+      {tab === 'manage' && !!failed.length && (
         <Alert variant="warning">
           <Icon name="warning" size={16} />
           <AlertDescription>
             <div className="font-medium">{failed.length} 个文件读不出来，已跳过其余照常索引</div>
-            <ul className="mt-1 space-y-0.5 font-mono text-[11.5px]">
+            <ul className="mt-1 space-y-0.5 font-mono text-xs">
               {failed.slice(0, 5).map((f, i) => (
                 <li key={i} className="truncate" title={f}>
                   {f}
@@ -243,37 +325,43 @@ export default function KbPage() {
         </Alert>
       )}
 
-      {/* ── 搜索（页面主体） ── */}
-      <Card className="overflow-hidden">
-        <form onSubmit={submit} className="flex flex-wrap items-center gap-2 border-b border-border p-3">
-          <div className="relative min-w-[240px] flex-1">
-            <Icon
-              name="search"
-              size={15}
-              className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground"
-            />
-            <Input
-              autoFocus
-              className="h-9 pl-9 text-[13px]"
-              placeholder="搜资料内容…支持中文、拼音首字母（如 tkzc）与 type:pdf"
-              value={draft}
-              onChange={(e) => setDraft(e.target.value)}
-            />
-          </div>
-          <Button type="submit" size="sm" disabled={!draft.trim()}>
-            搜索
-          </Button>
-          {(draft || query) && (
-            <Button type="button" variant="ghost" size="sm" onClick={clearAll}>
-              <Icon name="close" size={13} />
-              清空
+      {/* ── 搜索浏览：搜索框 + 历史 + 结果 ── */}
+      {tab === 'search' && <AssistTargetBar />}
+
+      {tab === 'search' && (
+        <Card className="overflow-hidden">
+        {/* 还没登记资料时不显示搜索框：没有内容可搜，给个输入框只会让人反复试。 */}
+        {!!folders.length && (
+          <form onSubmit={submit} className="flex flex-wrap items-center gap-2 border-b border-border p-3">
+            <div className="relative min-w-[240px] flex-1">
+              <Icon
+                name="search"
+                size={15}
+                className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground"
+              />
+              <Input
+                autoFocus
+                className="h-9 pl-9 text-base"
+                placeholder="搜资料内容…支持中文、拼音首字母（如 tkzc）与 type:pdf"
+                value={draft}
+                onChange={(e) => setDraft(e.target.value)}
+              />
+            </div>
+            <Button type="submit" size="sm" disabled={!draft.trim()}>
+              搜索
             </Button>
-          )}
-        </form>
+            {(draft || query) && (
+              <Button type="button" variant="ghost" size="sm" onClick={clearAll}>
+                <Icon name="close" size={13} />
+                清空
+              </Button>
+            )}
+          </form>
+        )}
 
         {!!history?.items.length && (
           <div className="flex flex-wrap items-center gap-1.5 border-b border-border px-3 py-2">
-            <span className="flex items-center gap-1 text-[11.5px] text-muted-foreground">
+            <span className="flex items-center gap-1 text-xs text-muted-foreground">
               <Icon name="clock" size={12} />
               最近
             </span>
@@ -283,7 +371,7 @@ export default function KbPage() {
                 type="button"
                 onClick={() => runHistory(h.query)}
                 title={`上次搜到 ${h.resultCount} 条`}
-                className="rounded-md border border-border px-2 py-0.5 text-[11.5px] text-muted-foreground transition-colors hover:border-primary/40 hover:text-foreground"
+                className="rounded-md border border-border px-2 py-0.5 text-xs text-muted-foreground transition-colors hover:border-primary/40 hover:text-foreground"
               >
                 {h.query}
               </button>
@@ -292,7 +380,7 @@ export default function KbPage() {
             <Button
               variant="ghost"
               size="sm"
-              className="h-6 text-[11.5px] text-muted-foreground"
+              className="h-6 text-xs text-muted-foreground"
               disabled={clearHistory.isPending}
               onClick={() => void clearHistory.mutateAsync().then(() => setNote('搜索历史已清空'))}
             >
@@ -301,36 +389,62 @@ export default function KbPage() {
           </div>
         )}
 
+        {/*
+          还没登记任何资料时，搜索框没有意义（无内容可搜），
+          所以把它收起来，只给"登记文件夹"这一个明确的下一步。
+          原来搜索框常驻 + 空态里再塞一个手填输入框，两处入口并排挤在一起，
+          看着像两个半成品。
+        */}
         {!folders.length ? (
-          <EmptyState
-            icon="folder"
-            title="还没有登记任何文件夹"
-            desc="知识库不搬动、不修改你的文件，只是把这些文件夹登记进来做一份内容索引。登记后引擎会在后台扫描，几百份文档通常几秒内完成。"
-            actions={
-              <>
-                {hasFolderPicker && (
-                  <Button size="sm" onClick={() => void onAdd()}>
-                    <Icon name="plus" size={13} />
-                    添加文件夹
-                  </Button>
-                )}
-                <div className="flex items-center gap-2">
-                  <Input
-                    className="h-7 w-[260px] text-[12px]"
-                    placeholder="或直接粘贴文件夹路径"
-                    value={manualPath}
-                    onChange={(e) => setManualPath(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') void addPath(manualPath)
-                    }}
-                  />
-                  <Button variant="outline" size="sm" disabled={!manualPath.trim()} onClick={() => void addPath(manualPath)}>
-                    登记
-                  </Button>
-                </div>
-              </>
-            }
-          />
+          <div className="px-6 py-12 text-center">
+            <span className="mx-auto flex size-11 items-center justify-center rounded-xl border border-border bg-muted/60 text-muted-foreground">
+              <Icon name="folder" size={20} />
+            </span>
+            <div className="mt-3 text-base font-medium">还没有登记任何文件夹</div>
+            <p className="mx-auto mt-1 max-w-[52ch] text-sm leading-relaxed text-muted-foreground">
+              知识库不搬动、不修改你的文件，只是把这些文件夹登记进来做一份内容索引。
+              登记后引擎会在后台扫描，几百份文档通常几秒内完成。
+            </p>
+
+            <div className="mx-auto mt-5 max-w-[480px] space-y-2.5 text-left">
+              {/* 拖文件夹进来：用户手上拿的是一个文件夹，不是路径字符串。
+                  文件夹拖到 <input> 里拿不到 files（Web 规范限制），要靠
+                  webkitGetAsEntry 逐层展开 —— 这是少数必须用非标准 API 的场景。 */}
+              <FolderDrop onFolders={(paths) => void addMany(paths)} />
+
+              {hasFolderPicker ? (
+                <Button size="sm" className="w-full" onClick={() => void onAdd()}>
+                  <Icon name="plus" size={13} />
+                  选择文件夹并登记
+                </Button>
+              ) : (
+                <p className="rounded-md border border-warn/35 bg-warn/8 px-3 py-2 text-sm leading-relaxed text-muted-foreground">
+                  当前环境无法弹出系统目录选择框（需要桌面版）。可以直接粘贴文件夹路径：
+                </p>
+              )}
+
+              {/* 无目录选择框时的降级入口；有选择框时也保留，作为"路径已知"时的快路径 */}
+              <div className="flex items-center gap-2">
+                <Input
+                  className="h-8 flex-1 font-mono text-sm"
+                  placeholder={hasFolderPicker ? '或粘贴文件夹路径' : 'C:/Users/Song/Documents/资料库'}
+                  value={manualPath}
+                  onChange={(e) => setManualPath(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') void addPath(manualPath)
+                  }}
+                />
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={!manualPath.trim()}
+                  onClick={() => void addPath(manualPath)}
+                >
+                  登记
+                </Button>
+              </div>
+            </div>
+          </div>
         ) : !query ? (
           <EmptyState
             icon="search"
@@ -349,7 +463,11 @@ export default function KbPage() {
           <EmptyState
             icon="search"
             title={`没有找到「${query}」`}
-            desc="换个说法试试，或减少关键词 —— 多个词默认要求全部命中。也可能是这份资料还没被登记进来。"
+            desc={
+              status?.semanticEnabled
+                ? '换个说法试试，或直接用一整句话描述你要找的内容 —— 本机已开启语义检索，问句也能找到相关文档。也可能是这份资料还没被登记进来。'
+                : '换个说法试试，或减少关键词 —— 多个词默认要求全部命中。也可能是这份资料还没被登记进来。'
+            }
             actions={
               <Button variant="outline" size="sm" onClick={clearAll}>
                 重新搜
@@ -358,7 +476,7 @@ export default function KbPage() {
           />
         ) : (
           <>
-            <div className="flex items-center gap-2 border-b border-border px-4 py-2 text-[11.5px] text-muted-foreground">
+            <div className="flex items-center gap-2 border-b border-border px-4 py-2 text-xs text-muted-foreground">
               <span>
                 找到 <span className="font-mono text-foreground">{results.length}</span> 个文件
                 {found && found.count !== results.length && '（已截断）'}
@@ -378,19 +496,22 @@ export default function KbPage() {
                       <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
                         <button
                           type="button"
-                          className="max-w-[420px] truncate text-[13px] font-medium hover:text-primary hover:underline"
+                          className="max-w-[420px] truncate text-base font-medium hover:text-primary hover:underline"
                           title={hit.path}
                           onClick={() => void onOpen(hit)}
                         >
                           {hit.fileName}
                         </button>
                         <Badge variant="outline">{hit.fileType}</Badge>
+                        {/* 只标「关键词之外的命中方式」：全站结果里 keyword 是基线，每条都挂一个反而是噪声 */}
+                        {hit.matchedBy === 'semantic' && <Badge variant="secondary">语义命中</Badge>}
+                        {hit.matchedBy === 'both' && <Badge>关键词 + 语义</Badge>}
                         {hit.matchCount > 1 && <Badge variant="secondary">命中 {hit.matchCount} 处</Badge>}
                         {hit.matchMode === 'or' && <Badge variant="warning">已放宽匹配</Badge>}
                         {hit.truncated && <Badge variant="outline">只索引了前半段</Badge>}
                       </div>
 
-                      <div className="mt-0.5 flex min-w-0 items-center gap-2 text-[11.5px] text-muted-foreground">
+                      <div className="mt-0.5 flex min-w-0 items-center gap-2 text-xs text-muted-foreground">
                         <span className="truncate font-mono" title={hit.path}>
                           {hit.path}
                         </span>
@@ -403,12 +524,12 @@ export default function KbPage() {
                           {hit.snippets.map((s, i) => (
                             <div
                               key={i}
-                              className="flex gap-2.5 rounded-md bg-muted/50 px-2.5 py-1.5 text-[12px] leading-relaxed"
+                              className="flex items-start gap-2.5 rounded-md bg-muted/50 px-2.5 py-1.5 text-sm leading-relaxed"
                             >
-                              <span className="w-7 shrink-0 select-none text-right font-mono text-[11px] text-muted-foreground/70">
+                              <span className="w-7 shrink-0 select-none text-right font-mono text-xs text-muted-foreground/70">
                                 {s.line}
                               </span>
-                              <span className="min-w-0 break-words">
+                              <span className="min-w-0 flex-1 break-words">
                                 {highlightSegments(s.text, terms).map((seg, j) =>
                                   seg.hit ? (
                                     <mark key={j} className="rounded-[3px] bg-primary/15 px-0.5 text-foreground">
@@ -419,10 +540,22 @@ export default function KbPage() {
                                   ),
                                 )}
                               </span>
+                              {/* 一段话术一个按钮：命中段落才是能直接用的话，
+                                  整份文件填进去没人要。 */}
+                              <Button
+                                variant="ghost"
+                                size="icon-sm"
+                                className="shrink-0"
+                                title="填进客服输入框（不会发送）"
+                                disabled={fill.isPending}
+                                onClick={() => onFill(s.text)}
+                              >
+                                <Icon name="arrowRight" size={14} />
+                              </Button>
                             </div>
                           ))}
                           {hit.matchCount > hit.snippets.length && (
-                            <div className="pl-10 text-[11.5px] text-muted-foreground">
+                            <div className="pl-10 text-xs text-muted-foreground">
                               …还有 {hit.matchCount - hit.snippets.length} 处命中，打开原文件查看
                             </div>
                           )}
@@ -450,83 +583,104 @@ export default function KbPage() {
             </motion.div>
           </>
         )}
-      </Card>
+        </Card>
+      )}
 
-      {/* ── 索引范围 ── */}
-      <div className="flex items-center gap-2 pt-1">
-        <Icon name="database" size={14} className="text-muted-foreground" />
-        <span className="text-[13px] font-medium">索引范围</span>
-        <span className="text-[11.5px] text-muted-foreground">支持 pdf / docx / xlsx / pptx / md / txt</span>
-      </div>
-
-      <motion.div variants={staggerList} initial="hidden" animate="show" className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-        <StatCard label="已索引文件" value={status?.fileCount ?? 0} icon="fileText" hint="命中一个文件只算一个，不按段落重复计" />
-        <StatCard label="索引段落" value={status?.docCount ?? 0} icon="boxes" hint="正文按段落切开后的条数，决定搜索的粒度" />
-        <StatCard
-          label="登记文件夹"
-          value={folders.length}
-          icon="folder"
-          tone={failed.length ? 'warn' : 'default'}
-          hint={failed.length ? `${failed.length} 个文件读不出来` : '注销只是撤回索引，不动磁盘文件'}
-        />
-      </motion.div>
-
-      <Card className="overflow-hidden">
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Icon name="folder" size={14} className="text-muted-foreground" />
-            已登记的文件夹
-          </CardTitle>
-          <Badge variant="secondary">{folders.length} 个</Badge>
-        </CardHeader>
-
-        {!folders.length ? (
-          <div className="px-5 py-6 text-center text-[12.5px] text-muted-foreground">
-            还没有登记文件夹。引擎只会扫描这里列出来的目录，不会碰其它地方。
+      {/* ── 资料管理：索引范围 / 统计 / 已登记文件夹 ── */}
+      {tab === 'manage' && (
+        <>
+          <div className="flex items-center gap-2 pt-1">
+            <Icon name="database" size={14} className="text-muted-foreground" />
+            <span className="text-base font-medium">索引范围</span>
+            <span className="text-xs text-muted-foreground">支持 pdf / docx / xlsx / pptx / md / txt</span>
           </div>
-        ) : (
-          <div className="divide-y divide-border">
-            {folders.map((f) => (
-              <div key={f.path} className="flex items-center gap-3 px-5 py-3">
-                <Icon name="folder" size={15} className="shrink-0 text-muted-foreground" />
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-2">
-                    <span className="truncate text-[13px] font-medium" title={f.path}>
-                      {f.name}
-                    </span>
-                    {f.docCount === 0 && <Badge variant="outline">暂无文档</Badge>}
-                  </div>
-                  <div className="truncate font-mono text-[11.5px] text-muted-foreground" title={f.path}>
-                    {f.path}
-                  </div>
-                </div>
-                <span className="shrink-0 font-mono text-[12px] tabular-nums text-muted-foreground">{f.docCount} 段</span>
-                <Button
-                  variant="ghost"
-                  size="icon-sm"
-                  title="注销这个文件夹"
-                  onClick={() => setPendingRemove(f)}
-                >
-                  <Icon name="trash" size={14} />
-                </Button>
+
+          <motion.div
+            variants={staggerList}
+            initial="hidden"
+            animate="show"
+            className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3"
+          >
+            <StatCard
+              label="已索引文件"
+              value={status?.fileCount ?? 0}
+              icon="fileText"
+              hint="命中一个文件只算一个，不按段落重复计"
+            />
+            <StatCard
+              label="索引段落"
+              value={status?.docCount ?? 0}
+              icon="boxes"
+              hint="正文按段落切开后的条数，决定搜索的粒度"
+            />
+            <StatCard
+              label="登记文件夹"
+              value={folders.length}
+              icon="folder"
+              tone={failed.length ? 'warn' : 'default'}
+              hint={failed.length ? `${failed.length} 个文件读不出来` : '注销只是撤回索引，不动磁盘文件'}
+            />
+          </motion.div>
+
+          <Card className="overflow-hidden">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Icon name="folder" size={14} className="text-muted-foreground" />
+                已登记的文件夹
+              </CardTitle>
+              <Badge variant="secondary">{folders.length} 个</Badge>
+            </CardHeader>
+
+            {!folders.length ? (
+              <div className="px-5 py-6 text-center text-sm text-muted-foreground">
+                还没有登记文件夹。引擎只会扫描这里列出来的目录，不会碰其它地方。
               </div>
-            ))}
-          </div>
-        )}
-      </Card>
+            ) : (
+              <div className="divide-y divide-border">
+                {folders.map((f) => (
+                  <div key={f.path} className="flex items-center gap-3 px-5 py-3">
+                    <Icon name="folder" size={15} className="shrink-0 text-muted-foreground" />
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2">
+                        <span className="truncate text-base font-medium" title={f.path}>
+                          {f.name}
+                        </span>
+                        {f.docCount === 0 && <Badge variant="outline">暂无文档</Badge>}
+                      </div>
+                      <div className="truncate font-mono text-xs text-muted-foreground" title={f.path}>
+                        {f.path}
+                      </div>
+                    </div>
+                    <span className="shrink-0 font-mono text-sm tabular-nums text-muted-foreground">
+                      {f.docCount} 段
+                    </span>
+                    <Button
+                      variant="ghost"
+                      size="icon-sm"
+                      title="注销这个文件夹"
+                      onClick={() => setPendingRemove(f)}
+                    >
+                      <Icon name="trash" size={14} />
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </Card>
+        </>
+      )}
 
       <ConfirmDialog
         open={!!pendingRemove}
         onOpenChange={(v) => !v && setPendingRemove(null)}
-        icon="trash"
-        destructive
+        action="delete"
         title={`注销「${pendingRemove?.name ?? ''}」？`}
         desc="会把它下面的文档从索引里撤回，之后的搜索不再命中这些文件。磁盘上的原文件不会被删除或修改。"
         confirmText="注销"
         pending={removeFolder.isPending}
         onConfirm={() => void doRemove()}
       >
-        <div className="rounded-lg border border-border px-3 py-2 font-mono text-[11.5px] text-muted-foreground">
+        <div className="rounded-lg border border-border px-3 py-2 font-mono text-xs text-muted-foreground">
           {pendingRemove?.path}
         </div>
       </ConfirmDialog>

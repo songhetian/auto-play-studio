@@ -14,6 +14,8 @@ import { EmptyState } from '@/components/blocks/empty-state'
 import { PageHeader } from '@/components/blocks/page-header'
 import { StatCard } from '@/components/blocks/stat-card'
 import { ToolCard, ToolSectionHeader, UtilityCard } from '@/components/blocks/tool-card'
+import { UTILITY_COLUMNS, UTILITY_GRID, padToColumns, toolGridClass } from '@/components/blocks/toolGrid'
+import { RHYTHM } from '@/components/blocks/rhythm'
 import { InstanceTable } from '@/modules/console/InstanceTable'
 import { isLive } from '@/modules/console/instanceStatus'
 import { useInstanceActions } from '@/modules/console/useInstanceActions'
@@ -114,9 +116,10 @@ export default function DashboardPage() {
 
       {/* ── 工具箱：分段与导航分组同源 ─────────────────────── */}
       {sections.map((s) => (
-        <motion.section key={s.id} variants={staggerList} initial="hidden" animate="show" className="space-y-3">
+        <motion.section key={s.id} variants={staggerList} initial="hidden" animate="show" className={RHYTHM.sectionStack}>
           <ToolSectionHeader title={s.label} hint={s.hint} />
-          <div className="grid gap-3 sm:grid-cols-2">
+          {/* 所有分组共用同一套栅格：卡片宽度只由栅格决定，与该组有几个工具无关 */}
+          <div className={toolGridClass(s.id)}>
             {s.tools.map((t) => (
               <ToolCard
                 key={t.id}
@@ -135,12 +138,19 @@ export default function DashboardPage() {
         </motion.section>
       ))}
 
-      <motion.section variants={staggerList} initial="hidden" animate="show" className="space-y-3">
+      <motion.section variants={staggerList} initial="hidden" animate="show" className={RHYTHM.sectionStack}>
         <ToolSectionHeader title="资源与系统" hint="工具共用" />
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          {utilityItems.map((it) => (
-            <UtilityCard key={it.id} to={it.path} name={it.label} desc={it.desc} icon={it.icon} />
-          ))}
+        {/* 资源入口与工具卡共用同一套栅格：补位列数必须取自 UTILITY_GRID 的列数，
+            写死别的值会把整数倍的入口补出多余空行。 */}
+        <div className={UTILITY_GRID}>
+          {padToColumns(utilityItems, UTILITY_COLUMNS).map((it, idx) =>
+            it ? (
+              <UtilityCard key={it.id} to={it.path} name={it.label} desc={it.desc} icon={it.icon} />
+            ) : (
+              // 空占位：占据一个网格单元但无内容，作用是让行高由整行共同决定
+              <div key={`pad-${idx}`} aria-hidden />
+            ),
+          )}
         </div>
       </motion.section>
 
@@ -165,7 +175,7 @@ export default function DashboardPage() {
                 <Icon name="play" size={14} className="text-muted-foreground" />
                 活跃实例
               </CardTitle>
-              <span className="text-[12px] text-muted-foreground">{live.length} 个</span>
+              <span className="text-sm text-muted-foreground">{live.length} 个</span>
             </CardHeader>
             {live.length ? (
               <InstanceTable list={live} />
@@ -198,24 +208,24 @@ export default function DashboardPage() {
                 <Icon name="warning" size={14} className={broken.length ? 'text-destructive' : 'text-muted-foreground'} />
                 需要处理
               </CardTitle>
-              <span className="text-[12px] text-muted-foreground">{broken.length} 个</span>
+              <span className="text-sm text-muted-foreground">{broken.length} 个</span>
             </CardHeader>
             {broken.length ? (
               <CardContent className="space-y-2 p-0 py-3">
                 {broken.slice(0, 5).map((i) => (
-                  <div key={i.id} className="flex items-center gap-2 px-5 text-[13px]">
+                  <div key={i.id} className="flex items-center gap-2 px-5 text-base">
                     <span className="size-1.5 flex-none rounded-full bg-destructive" />
                     <span className="truncate">{i.name}</span>
-                    <span className="ml-auto flex-none font-mono text-[11.5px] text-muted-foreground">{i.id}</span>
+                    <span className="ml-auto flex-none font-mono text-xs text-muted-foreground">{i.id}</span>
                   </div>
                 ))}
                 {broken.length > 5 && (
-                  <div className="px-5 text-[11.5px] text-muted-foreground">…等 {broken.length} 个</div>
+                  <div className="px-5 text-xs text-muted-foreground">…等 {broken.length} 个</div>
                 )}
               </CardContent>
             ) : (
-              <CardContent className="flex items-center gap-2 text-[12.5px] text-muted-foreground">
-                <Icon name="success" size={15} className="text-[hsl(var(--ok))]" />
+              <CardContent className="flex items-center gap-2 text-sm text-muted-foreground">
+                <Icon name="success" size={15} className="text-ok" />
                 没有异常实例，一切正常。
               </CardContent>
             )}
@@ -234,7 +244,7 @@ export default function DashboardPage() {
                 { icon: 'assets' as const, text: '提醒类工具（桌面图片监控）先往素材库放一张目标图' },
                 { icon: 'keyboard' as const, text: '每个实例的快捷键可以在实例配置里单独改' },
               ].map((r) => (
-                <div key={r.text} className="flex gap-2.5 px-5 text-[12.5px] leading-relaxed text-muted-foreground">
+                <div key={r.text} className="flex gap-2.5 px-5 text-sm leading-relaxed text-muted-foreground">
                   <Icon name={r.icon} size={14} className="mt-0.5 flex-none" />
                   <span>{r.text}</span>
                 </div>
