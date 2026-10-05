@@ -2,8 +2,8 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Search } from 'lucide-react'
 import { api } from '@/lib/api'
 import type { KbHit, LogiQueryItem } from '@/lib/api'
-import { ipc } from '@/lib/ipc'
-import { usePhrases, type Phrase } from '@/modules/phrases/usePhrases'
+import { ipc, type PhrasePanelOpen } from '@/lib/ipc'
+import { usePhrases } from '@/modules/phrases/usePhrases'
 import { buildInsertText, matchRanges, phraseVariables, searchPhrases } from './phraseSearch'
 import { suggestPhrases } from './suggestPhrases'
 import { enterActionOf, kbFillText, mergeQuick, type PanelMode, type QuickItem } from './quickSearch'
@@ -30,6 +30,11 @@ import { useAttendantStore } from '@/stores/attendantStore'
  * UI 取舍：靛蓝 `#2455D9` 强调色，平面、细线图标、无渐变、无重投影（对齐既有偏好）；
  * 用所选话术时**保留未推断到的 `{变量}` 原样**，并在页脚提醒"记得替换"——
  * 宁可让客服看到占位符，也不要发出「您好，」这种残缺话术，或把错名字发出去。
+ *
+ * 第四种入口 `Ctrl + Alt + K`（知识库速填）：同一个窗口、同一份列表，换的是**出口**——
+ * 知识库命中排到前面，Enter 把内容填进事先框定的客服输入框（走引擎的 assist 链路，
+ * 见 python/engine/assist/），而不是插回"唤起前的那个窗口"。
+ * 两条出口的差别落在 `enterActionOf`（quickSearch.ts）那张真值表上，这里只负责分发。
  */
 
 /** 强调色（与全局靛蓝一致） */
@@ -62,10 +67,14 @@ function Highlight({ text, query }: { text: string; query: string }) {
 
 export default function PhraseQuickPanel() {
   const [query, setQuery] = useState('')
+  /** 这次是哪个键唤起的：决定排序与 Enter 送哪儿（phrase = 插原窗口，kb = 填框定输入框） */
+  const [mode, setMode] = useState<PanelMode>('phrase')
   /** 选区建议带进来的客户消息；非空且 query 为空时走建议模式 */
   const [seed, setSeed] = useState('')
   const [index, setIndex] = useState(0)
   const [hotkey, setHotkey] = useState('')
+  /** 填入失败的原因（没框输入框 / 屏幕被占 / 引擎连不上），显示在页脚上方 */
+  const [fillError, setFillError] = useState('')
   /** 知识库命中（异步，不挡话术同步） */
   const [kb, setKb] = useState<KbHit[]>([])
   const [kbLoading, setKbLoading] = useState(false)
@@ -85,9 +94,10 @@ export default function PhraseQuickPanel() {
   const results = useMemo(
     () => {
       const phraseList = suggesting ? suggestPhrases(seed, phrases) : searchPhrases(phrases, query, 50)
-      return mergeQuick(phraseList, kb)
+      // kb 模式是冲知识库去的：把它排前面，省掉先滚过一屏话术
+      return mergeQuick(phraseList, kb, mode === 'kb')
     },
-    [suggesting, seed, phrases, query, kb],
+    [suggesting, seed, phrases, query, kb, mode],
   )
   const selected = results[index]
 
@@ -113,16 +123,22 @@ export default function PhraseQuickPanel() {
 
   // 每唤起一次就重置：清空查询、选中回第一条、拉最新话术/实例、清查件状态并聚焦输入框
   useEffect(() => {
-    const reset = (payload: { seed?: string } = {}) => {
+    const reset = (payload: PhrasePanelOpen = {}) => {
+      // 老版本主进程不发 `mode`，缺省按「话术速查」处理，不能因此把面板弄成空白
+      const next: PanelMode = payload?.mode === 'kb' ? 'kb' : 'phrase'
+      setMode(next)
       setSeed(payload?.seed ?? '')
       setQuery('')
       setIndex(0)
       setKb([])
       setKbLoading(false)
+      setFillError('')
       setLogiItems(null)
       setLogiError('')
       setLogiLoading(false)
       void refetch()
+      // 页脚键名跟着入口走：按 K 唤起来却显示 P，客服会以为自己按错了
+      void (next === 'kb' ? ipc.kbPanelHotkey() : ipc.phraseHotkey()).then(setHotkey)
       // 找第一个「物流」实例当查件目标；没有也不影响话术/知识库
       api.listInstances().then((list) => setLogiId(list.find((i) => i.tool === 'logi')?.id ?? null)).catch(() => setLogiId(null))
       requestAnimationFrame(() => inputRef.current?.focus())
@@ -168,28 +184,66 @@ export default function PhraseQuickPanel() {
     listRef.current?.querySelector<HTMLElement>(`[data-idx="${index}"]`)?.scrollIntoView({ block: 'nearest' })
   }, [index])
 
-  const insertPhrase = async (p: Phrase) => {
-    void api.markPhraseUsed(p.id).catch(() => {})
+  /**
+   * 一条命中最终要送出去的文本。
+   *
+   * 话术要过一遍变量自动填（③）：从句区推断 `{客户名}` / `{订单号}`，推断不出的原样保留；
+   * 知识库走 `kbFillText`（片段拼起来，拼出来是空的就退回文件名）。
+   */
+  const textOf = (item: QuickItem): string => {
+    if (item.kind === 'kb') return item.kb ? kbFillText(item.kb) : ''
+    const p = item.phrase
+    if (!p) return ''
     let body = p.body
-    // ③ 变量自动填：从选区推断 {客户名}/{订单号}，推断不出就保留占位符
     if (autoFillVars && seed) {
       const vals = inferVars(p.body, seed)
       if (Object.keys(vals).length) body = applyInferred(p.body, vals)
     }
-    await ipc.insertPhrase(buildInsertText({ ...p, body }))
+    return buildInsertText({ ...p, body })
   }
 
-  /** 知识库命中：Enter 复制摘要到剪贴板（不插进聊天框，避免把长文误发客户） */
-  const copyKb = (hit: KbHit) => {
-    const text = hit.snippets.map((s) => s.text).join('\n') || hit.fileName
-    ipc.copyText(text)
+  /**
+   * kb 模式的出口：把文本填进框定的客服输入框（**只填不发送**）。
+   *
+   * 失败时**不关面板**：多半是"还没框过输入框"或"屏幕被某个实例占着"，
+   * 客服得看着这句提示去改配置或停实例 —— 把面板一关，线索也跟着没了。
+   */
+  const fillInto = async (text: string) => {
+    if (!text) return
+    try {
+      await api.assistFill(text)
+      await ipc.closePhrasePanel()
+    } catch (e) {
+      setFillError(e instanceof Error ? e.message : '填入失败')
+    }
+  }
+
+  /** 选中一条：按 `enterActionOf` 的真值表决定插回原窗口 / 只复制 / 填入输入框 */
+  const activate = async (item: QuickItem) => {
+    const action = enterActionOf(mode, item.kind)
+    // 用过了就记一笔（kb 命中没有 id，自然跳过）
+    if (item.phrase) void api.markPhraseUsed(item.phrase.id).catch(() => {})
+    if (action === 'copy') {
+      if (item.kb) ipc.copyText(kbFillText(item.kb))
+      return
+    }
+    if (action === 'insert') {
+      await ipc.insertPhrase(textOf(item))
+      return
+    }
+    await fillInto(textOf(item))
   }
 
   const onEnter = async () => {
     const sel = results[index]
-    if (!sel) return
-    if (sel.kind === 'phrase' && sel.phrase) await insertPhrase(sel.phrase)
-    else if (sel.kind === 'kb' && sel.kb) copyKb(sel.kb)
+    if (sel) await activate(sel)
+  }
+
+  /** 改查询词一律走这里：顺带清掉上一次的填入报错 —— 内容都换了，旧报错不再有意义 */
+  const changeQuery = (v: string) => {
+    setQuery(v)
+    setIndex(0)
+    setFillError('')
   }
 
   /** ② 一键查件：调物流实例，结果只读，绝不插进聊天框 */
@@ -248,11 +302,12 @@ export default function PhraseQuickPanel() {
             ref={inputRef}
             autoFocus
             value={query}
-            onChange={(e) => {
-              setQuery(e.target.value)
-              setIndex(0)
-            }}
-            placeholder="输入关键词，快速找话术 / 知识库…"
+            onChange={(e) => changeQuery(e.target.value)}
+            placeholder={
+              mode === 'kb'
+                ? '搜知识库，选中后填进客服输入框…'
+                : '输入关键词，快速找话术 / 知识库…'
+            }
             className="flex-1 min-w-0 bg-transparent outline-none text-sm text-gray-9 placeholder:text-gray-5"
           />
           {kbLoading && <span className="flex-none text-xs text-gray-5">知识库检索中…</span>}
@@ -262,8 +317,7 @@ export default function PhraseQuickPanel() {
               className="flex-none text-xs text-gray-5 hover:text-gray-7"
               style={{ fontWeight: 400 }}
               onClick={() => {
-                setQuery('')
-                setIndex(0)
+                changeQuery('')
                 inputRef.current?.focus()
               }}
             >
@@ -286,8 +340,7 @@ export default function PhraseQuickPanel() {
               style={{ fontWeight: 400 }}
               onClick={() => {
                 setSeed('')
-                setQuery('')
-                setIndex(0)
+                changeQuery('')
                 inputRef.current?.focus()
               }}
             >
@@ -364,10 +417,7 @@ export default function PhraseQuickPanel() {
                   key={item.key}
                   data-idx={i}
                   onMouseEnter={() => setIndex(i)}
-                  onClick={() => {
-                    if (item.kind === 'phrase' && item.phrase) void insertPhrase(item.phrase)
-                    else if (item.kind === 'kb' && item.kb) copyKb(item.kb)
-                  }}
+                  onClick={() => void activate(item)}
                   className="px-3 py-2 cursor-pointer flex items-start gap-3"
                   style={{
                     background: active ? 'rgba(36, 85, 217, 0.07)' : undefined,
@@ -402,13 +452,16 @@ export default function PhraseQuickPanel() {
           )}
         </div>
 
-        {/* 页脚：变量提醒优先（插入前真正要看的）；知识库命中提示复制 */}
+        {/* 填入失败：说清为什么、下一步做什么。面板不关 —— 关了就看不到这句了 */}
+        {fillError && (
+          <div className="flex-none px-3 py-2 text-xs border-t border-gray-3" style={{ color: '#C0392B' }}>
+            没填进去：{fillError}
+          </div>
+        )}
+
+        {/* 页脚：变量提醒优先（送出去之前真正要看的），其次说明 Enter 会做什么 */}
         <div className="flex-none h-9 flex items-center px-3 gap-3 text-xs text-gray-5 border-t border-gray-3">
-          {selected?.kind === 'kb' ? (
-            <span style={{ color: ACCENT }} className="truncate">
-              Enter 复制摘要到剪贴板（不插入聊天框）
-            </span>
-          ) : phraseVars.length > 0 ? (
+          {phraseVars.length > 0 ? (
             <span style={{ color: ACCENT }} className="truncate">
               {Object.keys(filledVars).length > 0 && (
                 <span>已自动填入 {Object.entries(filledVars).map(([k, v]) => `${k}=${v}`).join(' ')}；</span>
@@ -416,6 +469,14 @@ export default function PhraseQuickPanel() {
               {remainingVars.length > 0
                 ? `仍需手动替换 ${remainingVars.map((v) => `{${v}}`).join(' ')}`
                 : '变量已全部填好'}
+            </span>
+          ) : mode === 'kb' ? (
+            <span style={{ color: ACCENT }} className="truncate">
+              Enter 填入客服输入框 —— 只填不发送，发出与否你自己按回车
+            </span>
+          ) : selected?.kind === 'kb' ? (
+            <span style={{ color: ACCENT }} className="truncate">
+              Enter 复制摘要到剪贴板（不插入聊天框）
             </span>
           ) : (
             <span>↑↓ 选择 · Enter 插入 · Esc 关闭</span>

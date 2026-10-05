@@ -16,7 +16,7 @@ import { Switch } from '@/components/ui/switch'
 import { Input } from '@/components/ui/input'
 import { api, type DailySummaryStatus } from '@/lib/api'
 import { useAttendantStore } from '@/stores/attendantStore'
-import { hasElectron, ipc } from '@/lib/ipc'
+import { hasAppHotkeys, hasElectron, ipc, type AppHotkeyLabels } from '@/lib/ipc'
 import { THEME_LABEL, THEME_MODES } from '@/lib/theme'
 import type { ThemeMode } from '@/lib/theme'
 import { HOTKEY_ACTIONS, HOTKEY_ACTION_LABEL, HOTKEY_SCOPE_LABEL, formatAccel, hotkeyMapOf } from '@/lib/hotkey'
@@ -34,6 +34,13 @@ const THEME_DESC: Record<ThemeMode, string> = {
   dark: '始终使用深色界面，适合长时间盯屏',
   system: '跟随 Windows 的浅色 / 深色设置自动切换',
 }
+
+/** `'Ctrl + Alt + K'` → `['Ctrl', 'Alt', 'K']`：键帽一个一个画 */
+const splitAccel = (accel: string): string[] =>
+  accel
+    .split('+')
+    .map((p) => p.trim())
+    .filter(Boolean)
 
 /** 设置：全局偏好的唯一去处。实例级配置（含热键）在各自实例窗口里改，两者不混。 */
 export default function SettingsPage() {
@@ -83,6 +90,17 @@ export default function SettingsPage() {
 
   useEffect(() => {
     ipc.userData().then(setDataDir)
+  }, [])
+
+  /**
+   * 应用级全局键的名字只有主进程知道（它才是注册方）。这里问一次列出来 ——
+   * 不列的话这几个键对用户等于不存在：快捷键卡片上只有实例热键，
+   * 按错了还会以为是程序坏了。浏览器预览里没有主进程，整组不显示。
+   */
+  const [appKeys, setAppKeys] = useState<AppHotkeyLabels | null>(null)
+  useEffect(() => {
+    if (!hasAppHotkeys) return
+    ipc.appHotkeys().then(setAppKeys).catch(() => {})
   }, [])
 
   const engineTag = engine === 'ok' ? 'success' : engine === 'down' ? 'destructive' : 'secondary'
@@ -235,6 +253,37 @@ export default function SettingsPage() {
                 </div>
 
                 <Separator />
+
+                {appKeys && (
+                  <div className="space-y-2">
+                    <div className="text-sm font-medium text-muted-foreground">
+                      全局快捷键（在任何程序里都能按）
+                    </div>
+                    <div className="grid gap-2 sm:grid-cols-2">
+                      {[
+                        { accel: appKeys.phrase, desc: '唤起话术速查面板' },
+                        { accel: appKeys.kb, desc: '搜知识库，选中后填进客服输入框（不发送）' },
+                        { accel: appKeys.firstReply, desc: '把开场白送进当前聊天输入框' },
+                        { accel: appKeys.suggest, desc: '按选中的客户消息推荐话术' },
+                      ].map((r) => (
+                        <div
+                          key={r.desc}
+                          className="flex items-center gap-3 rounded-lg border border-border bg-muted/40 px-3 py-2"
+                        >
+                          <span className="flex flex-none items-center gap-1">
+                            {splitAccel(r.accel).map((k) => (
+                              <Kbd key={k}>{k}</Kbd>
+                            ))}
+                          </span>
+                          <span className="text-sm text-muted-foreground">{r.desc}</span>
+                        </div>
+                      ))}
+                    </div>
+                    <p className="text-xs leading-relaxed text-muted-foreground">
+                      这几个键在系统级生效：自动化跑着、焦点在客服客户端上时也按得到。被别的程序占用会记在下方「注册失败」里。
+                    </p>
+                  </div>
+                )}
 
                 <div className="space-y-2">
                   <div className="text-sm font-medium text-muted-foreground">窗口内快捷键（不占用系统按键）</div>

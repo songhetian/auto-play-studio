@@ -4,6 +4,7 @@ import { toast } from '@/stores/toastStore'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
+import { Kbd } from '@/components/ui/kbd'
 import { Icon } from '@/components/icon'
 import { targetFromRegion, targetLabel } from '@/modules/kb/fillTarget'
 import { useAssistTarget, useAssistWindows, useSaveAssistTarget } from '@/modules/kb/useAssist'
@@ -24,8 +25,14 @@ export function AssistTargetBar() {
   const save = useSaveAssistTarget()
   const [keyword, setKeyword] = useState('')
   const [picking, setPicking] = useState(false)
+  /** 知识库速填的唤起键（只有主进程知道键名）；浏览器预览里为空，整句不显示 */
+  const [kbHotkey, setKbHotkey] = useState('')
 
   const target = saved.data ?? null
+
+  useEffect(() => {
+    void ipc.kbPanelHotkey().then(setKbHotkey)
+  }, [])
 
   // 配过就把关键字回填：重新框选不用再打一遍
   useEffect(() => {
@@ -94,6 +101,12 @@ export function AssistTargetBar() {
         {ready
           ? '框选后话术会填进这个位置，但不会替你按发送 —— 发出去之前你自己看一眼。'
           : '浏览器预览里没有框选能力，请在桌面端使用。'}
+        {target && kbHotkey && (
+          <>
+            {' '}
+            之后在客服客户端里按 <Kbd>{kbHotkey}</Kbd> 搜知识库，选中就填进这个位置。
+          </>
+        )}
       </p>
     </Card>
   )
