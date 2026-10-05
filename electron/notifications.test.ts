@@ -151,4 +151,39 @@ describe('通知泵', () => {
     gate.release?.()
     pump.stop()
   })
+
+  it('引擎可达性变化时才通知悬浮球，取到就不再重复通知', async () => {
+    const d = makeDeps()
+    const seen: boolean[] = []
+    d.onEngine = (online) => seen.push(online)
+    const pump = createNotifyPump(d, 1000)
+
+    await vi.advanceTimersByTimeAsync(0) // 第一次就取到了
+    await vi.advanceTimersByTimeAsync(1000)
+    await vi.advanceTimersByTimeAsync(1000)
+    expect(seen).toEqual([true]), '一直在线只通知一次，不能每轮都推'
+    pump.stop()
+  })
+
+  it('引擎断开通知离线，恢复后再通知在线', async () => {
+    let ok = true
+    const d = makeDeps({
+      fetchOutbox: async () => {
+        if (!ok) throw new Error('连接被拒')
+        return { items: [], cursor: 0 }
+      },
+    })
+    const seen: boolean[] = []
+    d.onEngine = (online) => seen.push(online)
+    const pump = createNotifyPump(d, 1000)
+
+    await vi.advanceTimersByTimeAsync(0) // 在线
+    ok = false
+    await vi.advanceTimersByTimeAsync(1000) // 离线
+    await vi.advanceTimersByTimeAsync(1000) // 仍离线，不重复推
+    ok = true
+    await vi.advanceTimersByTimeAsync(1000) // 恢复在线
+    expect(seen).toEqual([true, false, true]), '离线/恢复各推一次，中间不重复'
+    pump.stop()
+  })
 })

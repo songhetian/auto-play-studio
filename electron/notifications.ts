@@ -28,6 +28,12 @@ export interface NotifyDeps {
   setBadge: (count: number) => void
   /** 引擎还没起来 / 网络抖一下：记一句就行，绝不能让泵停摆 */
   onError?: (err: unknown) => void
+  /**
+   * 引擎可达性**变化**时才回调（true=这一轮取到了 · false=这一轮失败）。
+   * 悬浮球靠它切「离线」态：引擎不在，监控就没在跑，球不能还显示"监控中"。
+   * 只在变化时回调，避免每 2 秒都推一次相同状态。
+   */
+  onEngine?: (online: boolean) => void
 }
 
 export interface NotifyPump {
@@ -40,6 +46,14 @@ export function createNotifyPump(deps: NotifyDeps, intervalMs = 2000): NotifyPum
   let badge = -1
   let stopped = false
   let busy = false
+  /** null = 还没结论；只在 true/false 之间变化时才通知悬浮球 */
+  let engineOnline: boolean | null = null
+
+  const reportEngine = (online: boolean) => {
+    if (engineOnline === online) return
+    engineOnline = online
+    deps.onEngine?.(online)
+  }
 
   const tick = async () => {
     // 上一轮还没回来就别叠下一轮：慢一轮会把后面的轮询堆成一串并发请求
@@ -55,7 +69,9 @@ export function createNotifyPump(deps: NotifyDeps, intervalMs = 2000): NotifyPum
         badge = unread
         deps.setBadge(unread)
       }
+      reportEngine(true)
     } catch (err) {
+      reportEngine(false)
       deps.onError?.(err)
     } finally {
       busy = false
