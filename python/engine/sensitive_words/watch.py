@@ -116,7 +116,8 @@ class WordlibWatcher:
 
 # ── 生产装配 + 后台线程 ──────────────────────────────────────────────
 _watcher: WordlibWatcher | None = None
-_thread_started = False
+_thread: threading.Thread | None = None
+_stop_event: threading.Event | None = None
 
 
 def _import_into_db(payload):
@@ -139,12 +140,17 @@ def get_watcher() -> WordlibWatcher:
     return _watcher
 
 
-def start_watcher(interval: float = 3.0) -> None:
-    """启动后台轮询线程（幂等）。引擎启动时调用一次即可。"""
-    global _thread_started
-    if _thread_started:
-        return
-    _thread_started = True
+def start_watcher(interval: float = 3.0) -> threading.Thread:
+    """启动后台轮询线程（幂等），返回线程句柄。
+
+    返回句柄是为了让调用方能观察它：什么时候起的、停没停住。
+    """
+    global _thread, _stop_event
+    if _thread is not None and _thread.is_alive():
+        return _thread
+
+    _stop_event = threading.Event()
+    stop = _stop_event  # 闭包里固定引用，避免全局被重置后线程拿到 None
 
     def loop() -> None:
         while True:
@@ -152,6 +158,30 @@ def start_watcher(interval: float = 3.0) -> None:
                 get_watcher().poll()
             except Exception:  # noqa: BLE001 —— 轮询里任何异常都不能让线程退出
                 pass
-            time.sleep(interval)
+            # 用 Event 等待而不是 time.sleep：停止信号能立刻打断等待，
+            # 不必等这一次轮询间隔走完，退出才有确定性。
+            if stop.wait(interval):
+                return
 
-    threading.Thread(target=loop, name="wordlib-watch", daemon=True).start()
+    _thread = threading.Thread(target=loop, name="wordlib-watch", daemon=True)
+    _thread.start()
+    return _thread
+
+
+def stop_watcher(timeout: float = 5.0) -> bool:
+    """停掉后台轮询线程，返回「是否在 timeout 内真的停住了」。
+
+    没启动过、或已经停过，都直接返回 True（幂等）。
+    """
+    global _thread, _stop_event
+    if _thread is None or _stop_event is None:
+        return True
+
+    _stop_event.set()
+    _thread.join(timeout)
+    if _thread.is_alive():
+        return False
+
+    _thread = None
+    _stop_event = None
+    return True

@@ -8,7 +8,49 @@ from __future__ import annotations
 
 import pytest
 
+import engine.sensitive_words.watch as watch_mod
 from engine.sensitive_words.watch import WordlibWatcher, read_wordlib
+
+
+class Test后台线程生命周期:
+    """线程能起，就必须能停 —— 否则引擎退出后它会一直活到进程死。
+
+    接缝是模块公开 API 本身：
+    - ``start_watcher(interval)`` 返回线程句柄，重复调用返回同一个（幂等）；
+    - ``stop_watcher(timeout)`` 返回「是否在超时前真的停住了」。
+
+    这里刻意把轮询间隔给到 10 秒：只有**不等这一次 sleep 走完**才能立刻停住，
+    这一条同时盯住了「停止必须能打断等待」这个点。
+    """
+
+    @pytest.fixture(autouse=True)
+    def _前后都清(self):
+        # 线程是模块级全局状态，前后各停一次，别把活线程留给后面的用例
+        watch_mod.stop_watcher()
+        yield
+        watch_mod.stop_watcher()
+
+    def test_没启动过直接停_不该报错(self):
+        assert watch_mod.stop_watcher() is True
+
+    def test_起得来也停得住(self):
+        thread = watch_mod.start_watcher(interval=10)
+        assert thread.is_alive() is True
+        assert watch_mod.stop_watcher(timeout=2) is True
+        assert thread.is_alive() is False
+
+    def test_重复停是幂等的(self):
+        watch_mod.start_watcher(interval=10)
+        assert watch_mod.stop_watcher(timeout=2) is True
+        assert watch_mod.stop_watcher(timeout=2) is True
+
+    def test_重复启动不起第二个线程(self):
+        first = watch_mod.start_watcher(interval=10)
+        second = watch_mod.start_watcher(interval=10)
+        assert first is second
+        running = [t for t in __import__("threading").enumerate() if t.name == "wordlib-watch"]
+        assert len(running) == 1, "同一时刻只能有一条 watch 线程"
+        assert watch_mod.stop_watcher(timeout=2) is True
 
 
 class FakeFs:

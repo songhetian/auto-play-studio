@@ -11,7 +11,7 @@
     "preview": "node scripts/screenshot.mjs",
     "dev:electron": "npm run build:electron && electron .",
     "build:electron": "tsc -p tsconfig.electron.json && node -e \"const fs=require('fs');fs.copyFileSync('electron/region.html','dist-electron/region.html');fs.copyFileSync('electron/tray.png','dist-electron/tray.png')\"",
-    "build:engine": "python -m PyInstaller --name autoplay-engine --distpath dist-engine --workpath build-engine --specpath build-engine --paths python --paths notic --collect-submodules engine --collect-submodules uvicorn --collect-submodules app --hidden-import mss --noconfirm --clean python/run_engine.py",
+    "build:engine": "python -m PyInstaller --name autoplay-engine --distpath dist-engine --workpath build-engine --specpath build-engine --paths python --paths notic --collect-submodules engine --collect-submodules uvicorn --collect-submodules app --hidden-import mss --hidden-import pypdf --hidden-import pptx --hidden-import docx --noconfirm --clean python/run_engine.py",
     "fetch:kb-model": "python python/scripts/fetch_kb_model.py",
     "build": "tsc -b && npm run build:electron && npm run build:engine && vite build && npm run fetch:kb-model && electron-builder",
     "build:renderer": "vite build",

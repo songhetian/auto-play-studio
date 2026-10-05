@@ -50,9 +50,16 @@ async def lifespan(_app: FastAPI):
 
     wordlib_watch.start_watcher()
     # 每日汇总播报：到点发当天违禁词汇总 + 后台补发 pending（断网兜底）
-    asyncio.create_task(daily_summary_mod.run_scheduler())
-    asyncio.create_task(daily_summary_mod.run_retry())
+    summary_tasks = [
+        asyncio.create_task(daily_summary_mod.run_scheduler()),
+        asyncio.create_task(daily_summary_mod.run_retry()),
+    ]
     yield
+    # 退出：把这次启动出去的东西全部收回 —— 谁起的谁停。
+    # 少了这几行，线程会一直活到进程死（测试里表现为跨用例污染）。
+    for task in summary_tasks:
+        task.cancel()
+    wordlib_watch.stop_watcher()
 
 
 app = FastAPI(title="AutoPlay Engine", lifespan=lifespan)

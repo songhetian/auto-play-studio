@@ -6,6 +6,16 @@ uvicorn==0.30.5
 python-multipart==0.0.9   # Excel 上传
 openpyxl==3.1.5          # Excel 读写与状态回写
 pypinyin==0.55.0         # 知识库中文检索（拼音首字母 tkzc → 退款政策）
+pydantic>=2.7            # 请求体模型（经由 fastapi 也会装到，显式声明免得蹭隐性传递依赖）
+mss>=9.0                 # 区域截图（打包命令行里已有 --hidden-import mss）
+#
+# ── 知识库文档解析（engine/kb/extract.py）──────────────────────────
+# 这三个必须显式写着：它们都只在**函数体内**被 import，之前没写导致新环境装上就缺，
+# 而索引器会把失败记成"这个文件跳过了"，用户眼里就是 PDF/PPTX/Word 文档搜不到却没报错。
+# 同时 package.json 的 build:engine 也补了对应的 --hidden-import。
+pypdf>=4.2               # PDF 抽取（扫描件无文本层，不属于它的能力范围）
+python-docx>=1.1         # Word 抽取
+python-pptx>=0.6         # PPT 抽取
 #
 # ── 知识库语义检索（可选增强：不装则检索自动退回纯关键词，见 engine/kb/embed.py）──
 # 模型资产（bge-small-zh-v1.5）不入仓库，用 python/scripts/fetch_kb_model.py 拉。
@@ -20,7 +30,12 @@ tokenizers>=0.21         # 与模型配套的分词器（>=0.21 才有 Python 3.
 # opencv-python==4.10.0.84 # 模板匹配找图
 # numpy==2.1.0             # opencv 依赖
 #
+# ── 兜底抓取（engine/text_grabber.py，同样按需、且只在 Windows 上用得上）──
+# comtypes==1.4.6          # UI Automation 兜底取辞
+# pywin32>=306             # win32clipboard / win32con：取不到时的剪贴板兜底
+#
 # ── 物流 Provider ② 网页自动化 ──
 # playwright==1.46.0
 #
 # 测试：pytest>=8（httpx 供 TestClient 使用）
+# reportlab>=4.0           # 知识库测试夹具造 PDF，故意与读取用的 pypdf 不同源

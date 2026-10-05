@@ -28,6 +28,36 @@ from tests.helpers import (
 )
 
 
+class _TimeShim:
+    """runner 眼里的替身 time：sleep 记下来，其余一律转发给真的 time 模块。
+
+    为什么不写 ``monkeypatch.setattr(runner_mod.time, "sleep", ...)``：
+    ``runner_mod.time`` 就是**全局 time 模块对象本身**，改它的属性等于进程级替换。
+    引擎里任何还活着的后台线程（wordlib-watch 这类轮询）都跟着被换掉，
+    它们的 sleep 会一并混进记录里 —— 断言就从验证节流变成了看运气。
+    只把**runner 模块这一个引用**换掉，影响面就收回到被测对象身上。
+    """
+
+    def __init__(self, real, log: list[float]):
+        self._real = real
+        self._log = log
+
+    def sleep(self, seconds: float) -> None:
+        self._log.append(seconds)
+
+    def __getattr__(self, name: str):
+        return getattr(self._real, name)
+
+
+def record_runner_sleeps(monkeypatch) -> list[float]:
+    """接管 runner 的 time.sleep，返回记录表（期望单向 append）。"""
+    import engine.runner as runner_mod
+
+    sleeps: list[float] = []
+    monkeypatch.setattr(runner_mod, "time", _TimeShim(runner_mod.time, sleeps))
+    return sleeps
+
+
 def test_first_run_executes_every_row_and_writes_success(make_instance, order_xlsx, wait_status):
     iid = make_instance("rpa", rpa_cfg(order_xlsx))
     executor = FakeExecutor()
@@ -308,20 +338,8 @@ def test_send_interval_throttles_between_rows(make_instance, order_xlsx, wait_st
     """每行之间的节流：防止向目标窗口发送过快被风控/限流。
 
     末行之后不必等待，所以 2 行只应在第 1 行后睡一次（时长 = sendIntervalMs/1000）。
-
-    只记录**工作线程**里的 sleep：轮询助手 wait_status 也在主线程里调 time.sleep(0.05)，
-    全局打补丁会把那些也录进来，靠线程区分才能只验 runner 的节流。
     """
-    import threading
-
-    import engine.runner as runner_mod
-
-    sleeps: list[float] = []
-    monkeypatch.setattr(
-        runner_mod.time,
-        "sleep",
-        lambda s: sleeps.append(s) if threading.current_thread() is not threading.main_thread() else None,
-    )
+    sleeps = record_runner_sleeps(monkeypatch)
 
     iid = make_instance("rpa", rpa_cfg(order_xlsx, sendIntervalMs=100))
     run_to_completion(iid, FakeExecutor(), wait_status)
@@ -331,16 +349,7 @@ def test_send_interval_throttles_between_rows(make_instance, order_xlsx, wait_st
 
 def test_send_interval_zero_skips_throttling(make_instance, order_xlsx, wait_status, monkeypatch):
     """sendIntervalMs=0 表示不节流：验证「不等待」的实现路径。"""
-    import threading
-
-    import engine.runner as runner_mod
-
-    sleeps: list[float] = []
-    monkeypatch.setattr(
-        runner_mod.time,
-        "sleep",
-        lambda s: sleeps.append(s) if threading.current_thread() is not threading.main_thread() else None,
-    )
+    sleeps = record_runner_sleeps(monkeypatch)
 
     iid = make_instance("rpa", rpa_cfg(order_xlsx, sendIntervalMs=0))
     run_to_completion(iid, FakeExecutor(), wait_status)
