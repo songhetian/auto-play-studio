@@ -1,0 +1,761 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="light" data-accent="blue">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>AutoPlay Studio · Arco 风格重设计原型</title>
+<style>
+/* ============================================================
+   设计令牌（Design Tokens）—— Arco Design 取向
+   - 主题：light / dark（html[data-theme]）
+   - 强调色：blue / cyan / orange（html[data-accent]）
+   ============================================================ */
+:root{
+  --fn:"PingFang SC","Hiragino Sans GB","Microsoft YaHei",-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+  --radius-1:2px; --radius-2:4px; --radius-3:6px; --radius-4:8px; --radius-round:999px;
+  /* 功能色（Arco 标准） */
+  --success:#00B42A; --warning:#FF7D00; --danger:#F53F3F; --danger-hover:#F76965; --info:#165DFF;
+  --success-light:color-mix(in srgb,#00B42A 12%,transparent);
+  --warning-light:color-mix(in srgb,#FF7D00 12%,transparent);
+  --danger-light:color-mix(in srgb,#F53F3F 12%,transparent);
+  --idle:#86909C;
+  /* 阴影（Arco 层级） */
+  --sh-1:0 1px 3px rgba(0,0,0,.08),0 1px 2px rgba(0,0,0,.04);
+  --sh-2:0 4px 10px rgba(0,0,0,.08),0 4px 8px rgba(0,0,0,.04);
+  --sh-3:0 10px 30px rgba(0,0,0,.12),0 6px 14px rgba(0,0,0,.06);
+  --sh-pop:0 12px 40px rgba(0,0,0,.16);
+  /* 蓝（默认） */
+  --accent:#165DFF; --accent-hover:#4080FF; --accent-active:#0E42D2;
+  --accent-light:color-mix(in srgb,#165DFF 12%,transparent);
+  --accent-light-2:color-mix(in srgb,#165DFF 22%,transparent);
+  --accent-ring:color-mix(in srgb,#165DFF 22%,transparent);
+}
+:root[data-accent="cyan"]{
+  --accent:#14C9C9; --accent-hover:#37D6D6; --accent-active:#0FC5C5;
+  --accent-light:color-mix(in srgb,#14C9C9 14%,transparent);
+  --accent-light-2:color-mix(in srgb,#14C9C9 24%,transparent);
+  --accent-ring:color-mix(in srgb,#14C9C9 22%,transparent);
+}
+:root[data-accent="orange"]{
+  --accent:#FF7D00; --accent-hover:#FF9A2E; --accent-active:#E06B00;
+  --accent-light:color-mix(in srgb,#FF7D00 14%,transparent);
+  --accent-light-2:color-mix(in srgb,#FF7D00 24%,transparent);
+  --accent-ring:color-mix(in srgb,#FF7D00 22%,transparent);
+}
+/* 浅色主题 */
+:root[data-theme="light"]{
+  --page:#F7F8FA; --surface:#FFFFFF; --surface-2:#F7F8FA; --surface-3:#F2F3F5; --surface-hover:#F2F3F5;
+  --line:#E5E6EB; --line-2:#C9CDD4; --line-3:#F2F3F5;
+  --ink:#1D2129; --ink-2:#4E5969; --ink-3:#86909C; --ink-4:#A9AEB8;
+  --rail:linear-gradient(180deg,#FFFFFF,#FBFCFD);
+}
+/* 深色主题 */
+:root[data-theme="dark"]{
+  --page:#17171A; --surface:#232324; --surface-2:#2A2A2B; --surface-3:#333335; --surface-hover:#2A2A2B;
+  --line:#2E2E30; --line-2:#484A4D; --line-3:#333335;
+  --ink:#F7F8FA; --ink-2:#C9CDD4; --ink-3:#86909C; --ink-4:#6B6F76;
+  --rail:linear-gradient(180deg,#1F1F22,#19191C);
+  --sh-1:0 1px 3px rgba(0,0,0,.4); --sh-2:0 4px 12px rgba(0,0,0,.45); --sh-3:0 10px 30px rgba(0,0,0,.55);
+  --sh-pop:0 12px 40px rgba(0,0,0,.6);
+}
+
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%}
+body{font-family:var(--fn);background:var(--page);color:var(--ink);font-size:14px;line-height:1.5;-webkit-font-smoothing:antialiased;transition:background .25s,color .25s}
+button{font-family:inherit;cursor:pointer;border:none;background:none;color:inherit;font-size:inherit}
+input,textarea,select{font-family:inherit;font-size:14px;color:var(--ink)}
+::-webkit-scrollbar{width:8px;height:8px}
+::-webkit-scrollbar-thumb{background:var(--line-2);border-radius:8px}
+::-webkit-scrollbar-thumb:hover{background:var(--ink-4)}
+
+/* ============ 布局 ============ */
+.app{display:grid;grid-template-columns:76px 1fr;height:100vh}
+/* ---- 图标 rail 导航 ---- */
+.rail{background:var(--rail);border-right:1px solid var(--line);display:flex;flex-direction:column;align-items:center;padding:14px 0 12px;gap:6px}
+.rail .logo{width:42px;height:42px;border-radius:var(--radius-3);background:var(--accent);color:#fff;display:grid;place-items:center;font-weight:800;font-size:19px;box-shadow:var(--sh-2);margin-bottom:8px}
+.rail .navitem{width:60px;height:56px;border-radius:var(--radius-3);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;color:var(--ink-3);transition:.15s;position:relative}
+.rail .navitem .ico{font-size:19px;line-height:1}
+.rail .navitem .lb{font-size:11px;font-weight:500}
+.rail .navitem:hover{background:var(--surface-hover);color:var(--ink)}
+.rail .navitem.active{background:var(--accent-light);color:var(--accent)}
+.rail .navitem.active::before{content:"";position:absolute;left:-14px;top:14px;bottom:14px;width:3px;border-radius:3px;background:var(--accent)}
+.rail .navitem .dot{position:absolute;top:9px;right:13px;width:7px;height:7px;border-radius:50%;background:var(--danger);border:2px solid var(--surface)}
+.rail .spacer{margin-top:auto}
+.rail .navitem.bottom{margin-top:6px}
+
+/* ---- 主区 ---- */
+.main{display:flex;flex-direction:column;min-width:0;overflow:hidden}
+.topbar{height:56px;border-bottom:1px solid var(--line);background:var(--surface);display:flex;align-items:center;gap:14px;padding:0 18px}
+.crumb{font-size:14px;color:var(--ink-3);font-weight:500}
+.crumb b{color:var(--ink)}
+.search{flex:1;max-width:440px;margin-left:8px;display:flex;align-items:center;gap:8px;background:var(--surface-2);border:1px solid var(--line);border-radius:var(--radius-3);padding:7px 12px;color:var(--ink-3);transition:.15s}
+.search:focus-within{border-color:var(--accent);background:var(--surface);box-shadow:0 0 0 3px var(--accent-ring)}
+.search input{border:none;background:none;outline:none;flex:1;font-size:13px;color:var(--ink)}
+.search input::placeholder{color:var(--ink-4)}
+.top-actions{margin-left:auto;display:flex;align-items:center;gap:10px}
+.content{flex:1;overflow:auto;padding:22px 26px 48px}
+.wrap{max-width:1200px;margin:0 auto}
+
+/* ============ 外观切换器（主题 / 强调色） ============ */
+.appear{display:flex;align-items:center;gap:8px}
+.theme-toggle{width:34px;height:34px;border-radius:var(--radius-3);border:1px solid var(--line);background:var(--surface-2);display:grid;place-items:center;color:var(--ink-2);font-size:16px;transition:.15s}
+.theme-toggle:hover{border-color:var(--line-2);color:var(--ink)}
+.swatches{display:flex;gap:5px;padding:4px;background:var(--surface-2);border:1px solid var(--line);border-radius:var(--radius-round)}
+.sw{width:18px;height:18px;border-radius:50%;border:2px solid transparent;cursor:pointer;transition:.12s}
+.sw[data-a="blue"]{background:#165DFF}.sw[data-a="cyan"]{background:#14C9C9}.sw[data-a="orange"]{background:#FF7D00}
+.sw.on{border-color:var(--ink);box-shadow:0 0 0 2px var(--surface)}
+
+/* ============ 按钮（Arco 精修） ============ */
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;height:32px;padding:0 16px;border-radius:var(--radius-3);font-size:14px;font-weight:500;border:1px solid transparent;background:var(--surface);transition:.15s;white-space:nowrap;user-select:none}
+.btn:active{transform:translateY(.5px)}
+.btn.primary{background:var(--accent);color:#fff;box-shadow:var(--sh-1)}
+.btn.primary:hover{background:var(--accent-hover)}
+.btn.primary:active{background:var(--accent-active)}
+.btn.secondary{background:var(--surface);color:var(--ink);border-color:var(--line-2)}
+.btn.secondary:hover{color:var(--accent);border-color:var(--accent);background:var(--accent-light)}
+.btn.outline{background:var(--accent-light);color:var(--accent);border-color:transparent}
+.btn.outline:hover{background:var(--accent-light-2)}
+.btn.text{background:transparent;color:var(--accent);padding:0 8px}
+.btn.text:hover{background:var(--accent-light)}
+.btn.dashed{background:var(--surface);color:var(--ink-2);border:1px dashed var(--line-2)}
+.btn.dashed:hover{color:var(--accent);border-color:var(--accent)}
+.btn.success{background:var(--success);color:#fff}.btn.success:hover{filter:brightness(1.06)}
+.btn.warning{background:var(--warning);color:#fff}.btn.warning:hover{filter:brightness(1.06)}
+.btn.danger{background:var(--danger);color:#fff}.btn.danger:hover{background:var(--danger-hover)}
+.btn.danger-ghost{background:var(--danger-light);color:var(--danger)}
+.btn.danger-ghost:hover{background:color-mix(in srgb,#F53F3F 20%,transparent)}
+.btn:disabled,.btn[aria-disabled]{opacity:.45;cursor:not-allowed;pointer-events:none}
+.btn.sm{height:28px;padding:0 12px;font-size:13px}
+.btn.lg{height:36px;padding:0 20px;font-size:15px}
+.btn.mini{height:24px;padding:0 9px;font-size:12px;border-radius:var(--radius-2)}
+.btn.round{border-radius:var(--radius-round);padding:0 18px}
+.btn.circle{width:32px;height:32px;padding:0;border-radius:50%}
+.btn.circle.sm{width:28px;height:28px}.btn.circle.lg{width:36px;height:36px}
+.btn .ld{width:13px;height:13px;border:2px solid currentColor;border-right-color:transparent;border-radius:50%;animation:spin .6s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+/* ============ 输入框 / 表单 ============ */
+.field{margin-bottom:18px}
+.field>label{display:block;font-size:13px;color:var(--ink-2);margin-bottom:6px;font-weight:500}
+.field>label .req{color:var(--danger);margin-right:3px}
+.inp{display:flex;align-items:center;gap:8px;height:32px;padding:0 11px;background:var(--surface);border:1px solid var(--line-2);border-radius:var(--radius-3);transition:.15s;color:var(--ink)}
+.inp:hover{border-color:var(--accent)}
+.inp:focus-within{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-ring)}
+.inp input,.inp textarea{flex:1;border:none;outline:none;background:none;color:var(--ink);font-size:14px;height:100%}
+.inp input::placeholder{color:var(--ink-4)}
+.inp .pre{color:var(--ink-3);display:flex}
+.inp .suf{color:var(--ink-3);display:flex;cursor:pointer}
+.inp.error{border-color:var(--danger)}
+.inp.error:focus-within{box-shadow:0 0 0 3px var(--danger-light)}
+.inp.disabled{background:var(--surface-3);border-color:var(--line);color:var(--ink-4);pointer-events:none}
+.inp.lg{height:36px}.inp.sm{height:28px}
+.help{font-size:12px;color:var(--ink-3);margin-top:5px}
+.help.err{color:var(--danger)}
+.addon{display:flex;align-items:stretch}
+.addon .inp{border-top-right-radius:0;border-bottom-right-radius:0;border-right:none}
+.addon .add{display:flex;align-items:center;padding:0 12px;background:var(--surface-2);border:1px solid var(--line-2);border-left:none;border-radius:0 var(--radius-3) var(--radius-3) 0;color:var(--ink-2);font-size:13px}
+
+/* ============ 选择 / 开关 ============ */
+.select{position:relative;display:inline-block}
+.select .inp{cursor:pointer;min-width:200px;justify-content:space-between}
+.select .menu{position:absolute;top:38px;left:0;right:0;background:var(--surface);border:1px solid var(--line);border-radius:var(--radius-3);box-shadow:var(--sh-2);padding:4px;z-index:30;display:none}
+.select.open .menu{display:block;animation:pop .12s ease}
+.select .opt{padding:7px 11px;border-radius:var(--radius-2);font-size:13px;display:flex;align-items:center;justify-content:space-between;cursor:pointer}
+.select .opt:hover{background:var(--surface-hover)}
+.select .opt.sel{background:var(--accent-light);color:var(--accent);font-weight:600}
+@keyframes pop{from{opacity:0;transform:translateY(-4px)}to{opacity:1;transform:translateY(0)}}
+.switch{width:40px;height:22px;border-radius:var(--radius-round);background:var(--line-2);position:relative;transition:.2s;flex:none;cursor:pointer}
+.switch i{position:absolute;top:2px;left:2px;width:18px;height:18px;border-radius:50%;background:#fff;box-shadow:var(--sh-1);transition:.2s}
+.switch.on{background:var(--accent)}
+.switch.on i{left:20px}
+.switch.sm{width:34px;height:19px}.switch.sm i{width:15px;height:15px;top:2px}.switch.sm.on i{left:17px}
+
+/* ============ 卡片 / 页面头 ============ */
+.card{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius-4);box-shadow:var(--sh-1)}
+.phead{display:flex;align-items:flex-end;gap:14px;margin-bottom:18px}
+.phead h1{font-size:21px;font-weight:600;letter-spacing:.2px}
+.phead p{color:var(--ink-2);font-size:13px;margin-top:4px;max-width:660px;line-height:1.6}
+.phead .act{margin-left:auto;display:flex;gap:8px}
+.grid{display:grid;gap:16px}
+.cols-3{grid-template-columns:repeat(3,1fr)}.cols-2{grid-template-columns:repeat(2,1fr)}
+@media(max-width:1024px){.cols-3{grid-template-columns:1fr}.cols-2{grid-template-columns:1fr}}
+.sec-title{font-size:14px;font-weight:600;margin:6px 0 14px;display:flex;align-items:center;gap:10px}
+.sec-title .ln{flex:1;height:1px;background:var(--line)}
+.hint{font-size:12px;color:var(--ink-3);line-height:1.65;margin-top:6px}
+
+/* ============ 标签 / 徽标 / 进度 ============ */
+.tag{display:inline-flex;align-items:center;height:22px;padding:0 8px;border-radius:var(--radius-2);font-size:12px;font-weight:500;background:var(--surface-3);color:var(--ink-2)}
+.tag.primary{background:var(--accent-light);color:var(--accent)}
+.tag.success{background:var(--success-light);color:var(--success)}
+.tag.warning{background:var(--warning-light);color:var(--warning)}
+.tag.danger{background:var(--danger-light);color:var(--danger)}
+.badge{position:relative;display:inline-flex}
+.badge .b{position:absolute;top:-7px;right:-9px;min-width:16px;height:16px;padding:0 4px;border-radius:var(--radius-round);background:var(--danger);color:#fff;font-size:10px;font-weight:700;display:grid;place-items:center;border:2px solid var(--surface)}
+.progress{height:6px;border-radius:var(--radius-round);background:var(--surface-3);overflow:hidden}
+.progress>i{display:block;height:100%;background:var(--accent);border-radius:var(--radius-round);transition:width .4s}
+.progress.ok>i{background:var(--success)}.progress.warn>i{background:var(--warning)}.progress.danger>i{background:var(--danger)}
+
+/* ============ 实例卡 ============ */
+.icard{padding:16px;display:flex;flex-direction:column;gap:13px}
+.icard .top{display:flex;align-items:flex-start;gap:11px}
+.ttool{width:36px;height:36px;border-radius:var(--radius-3);background:var(--accent-light);color:var(--accent);display:grid;place-items:center;font-size:11px;font-weight:700;flex:none}
+.iname{font-weight:600;font-size:14px;outline:none;border-radius:var(--radius-2);padding:2px 4px;margin:-2px -4px;cursor:text}
+.iname:hover{background:var(--surface-hover)}
+.iname:focus{background:var(--surface);border:1px solid var(--accent);box-shadow:0 0 0 3px var(--accent-ring);cursor:text}
+.imeta{font-size:12px;color:var(--ink-3);margin-top:3px}
+.status{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:600;padding:3px 10px;border-radius:var(--radius-round)}
+.status .d{width:7px;height:7px;border-radius:50%}
+.st-run{background:var(--success-light);color:var(--success)}.st-run .d{background:var(--success)}
+.st-pause{background:var(--warning-light);color:var(--warning)}.st-pause .d{background:var(--warning)}
+.st-idle{background:var(--surface-3);color:var(--ink-3)}.st-idle .d{background:var(--ink-3)}
+.st-stop{background:var(--danger-light);color:var(--danger)}.st-stop .d{background:var(--danger)}
+.prow{display:flex;justify-content:space-between;font-size:12px;color:var(--ink-3);margin-top:7px}
+.ctrls{display:flex;gap:8px;flex-wrap:wrap}
+.ctrls .btn{flex:1}
+.empty-add{border:1.5px dashed var(--line-2);border-radius:var(--radius-4);padding:28px;display:flex;flex-direction:column;align-items:center;gap:10px;color:var(--ink-2);text-align:center;background:var(--surface-2);justify-content:center}
+.empty-add .big{width:44px;height:44px;border-radius:var(--radius-3);background:var(--accent-light);color:var(--accent);display:grid;place-items:center;font-size:22px}
+
+/* ============ Tabs ============ */
+.tabs{display:flex;gap:0;background:var(--surface);border:1px solid var(--line);border-radius:var(--radius-3);padding:4px;width:max-content;margin-bottom:16px}
+.tabs button{padding:7px 16px;border-radius:var(--radius-2);font-size:13px;font-weight:500;color:var(--ink-2);position:relative}
+.tabs button.active{background:var(--accent);color:#fff;font-weight:600}
+.tabpane{display:none}.tabpane.on{display:block}
+
+/* ============ 知识库 ============ */
+.stat-row{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-bottom:16px}
+.stat{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius-4);padding:16px}
+.stat .v{font-size:24px;font-weight:600;letter-spacing:.3px}
+.stat .k{font-size:12px;color:var(--ink-3);margin-top:3px}
+.stat .h{font-size:11px;color:var(--ink-4);margin-top:7px}
+.folder{display:flex;align-items:center;gap:12px;padding:13px 16px;border-bottom:1px solid var(--line)}
+.folder:last-child{border-bottom:none}
+.folder .ic{width:32px;height:32px;border-radius:var(--radius-3);background:var(--surface-2);display:grid;place-items:center;color:var(--ink-3)}
+.searchbox{display:flex;align-items:center;gap:10px;background:var(--surface);border:1px solid var(--line-2);border-radius:var(--radius-4);padding:13px 16px;box-shadow:var(--sh-1)}
+.searchbox input{flex:1;border:none;outline:none;font-size:14px}
+.res{display:flex;gap:13px;padding:15px 16px;border-bottom:1px solid var(--line)}
+.res:last-child{border-bottom:none}
+.res .ric{width:36px;height:36px;border-radius:var(--radius-3);background:var(--surface-2);display:grid;place-items:center;color:var(--ink-3);flex:none;font-size:12px;font-weight:700}
+.res .ft{font-size:11px;color:var(--ink-3);font-weight:600}
+.res .fn{font-size:14px;font-weight:600;margin-top:2px}
+.res .snip{font-size:12.5px;color:var(--ink-2);margin-top:7px;line-height:1.6;background:var(--surface-2);border-radius:var(--radius-2);padding:9px 11px}
+.res mark{background:color-mix(in srgb,#FF7D00 22%,transparent);border-radius:2px;padding:0 2px;color:var(--accent)}
+
+/* ============ 监控弹窗（Arco Alert + 快捷动作） ============ */
+.alert-demo{position:relative;border-radius:var(--radius-4);overflow:hidden;border:1px solid var(--line);background:var(--surface-2);padding:22px;min-height:340px}
+.alert-pop{position:absolute;top:18px;left:50%;transform:translateX(-50%);width:min(460px,90%);background:var(--surface);border:1px solid var(--danger);border-top:4px solid var(--danger);border-radius:var(--radius-4);box-shadow:var(--sh-pop);padding:15px 16px;display:flex;gap:13px;align-items:flex-start;animation:drop .45s ease;z-index:5}
+@keyframes drop{from{opacity:0;transform:translate(-50%,-16px)}to{opacity:1;transform:translate(-50%,0)}}
+.alert-pop .bad{width:40px;height:40px;border-radius:var(--radius-3);background:var(--danger-light);color:var(--danger);display:grid;place-items:center;font-size:22px;font-weight:800;flex:none}
+.alert-pop .tt{font-weight:700;font-size:15px}
+.alert-pop .ms{font-size:12.5px;color:var(--ink-2);margin-top:4px;line-height:1.6}
+.alert-pop .sc{font-size:11px;color:var(--danger);font-weight:700;letter-spacing:.04em;margin-bottom:5px}
+.alert-pop .acts{display:flex;gap:8px;margin-top:12px;padding-top:11px;border-top:1px solid var(--line)}
+.sound-card{padding:18px}
+.preset{display:flex;align-items:center;gap:12px;padding:12px 14px;border:1px solid var(--line);border-radius:var(--radius-3);margin-bottom:9px;transition:.15s;cursor:pointer}
+.preset:hover{border-color:var(--accent)}
+.preset.sel{border-color:var(--accent);background:var(--accent-light)}
+.preset .play{width:32px;height:32px;border-radius:var(--radius-2);background:var(--surface-2);display:grid;place-items:center;color:var(--accent)}
+.preset .nm{font-weight:600;font-size:13.5px}
+.preset .ds{font-size:12px;color:var(--ink-3);margin-top:2px}
+.upload{border:1.5px dashed var(--line-2);border-radius:var(--radius-3);padding:15px;text-align:center;color:var(--ink-2);font-size:12px;background:var(--surface-2);margin-top:11px;transition:.15s;cursor:pointer}
+.upload:hover{border-color:var(--accent);color:var(--accent)}
+
+/* ============ 客服工具 ============ */
+.cs-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}
+@media(max-width:1024px){.cs-grid{grid-template-columns:1fr}}
+.cs-card{padding:16px;display:flex;flex-direction:column;gap:12px}
+.cs-card .hd{display:flex;align-items:center;gap:10px}
+.cs-card .ci{width:36px;height:36px;border-radius:var(--radius-3);background:var(--accent-light);color:var(--accent);display:grid;place-items:center;font-size:17px}
+.reply{display:flex;gap:10px;padding:11px 12px;border:1px solid var(--line);border-radius:var(--radius-3);align-items:flex-start}
+.reply .tag{flex:none}.reply .tx{font-size:13px;color:var(--ink);line-height:1.55}
+.reply .send{margin-left:auto;flex:none}
+.rule{display:flex;align-items:center;gap:11px;padding:12px 14px;border-bottom:1px solid var(--line)}
+.rule:last-child{border-bottom:none}
+.rule .info{flex:1}.rule .nm{font-weight:600;font-size:13px}.rule .ds{font-size:12px;color:var(--ink-3);margin-top:2px}
+.side-mock{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius-4);box-shadow:var(--sh-2);overflow:hidden}
+.side-mock .sh{background:var(--accent);color:#fff;padding:11px 14px;font-weight:600;font-size:13px;display:flex;align-items:center;gap:8px}
+.side-mock .bd{padding:14px;display:flex;flex-direction:column;gap:10px}
+.kv{display:flex;justify-content:space-between;font-size:13px;padding:7px 0;border-bottom:1px dashed var(--line)}
+.kv .k{color:var(--ink-3)}.kv .v{font-weight:600}
+.chip{display:inline-block;font-size:12px;background:var(--surface-3);border-radius:var(--radius-2);padding:3px 9px;margin:2px}
+
+/* ============ 组件库展示 ============ */
+.ds-section{margin-bottom:30px}
+.ds-section .desc{font-size:12.5px;color:var(--ink-3);margin:-8px 0 14px}
+.ds-row{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:12px}
+.ds-sub{font-size:12px;font-weight:600;color:var(--ink-3);width:84px;flex:none}
+
+/* ============ Alert 条 ============ */
+.alert{display:flex;gap:10px;align-items:flex-start;padding:11px 14px;border-radius:var(--radius-3);font-size:13px;margin-bottom:12px;border:1px solid}
+.alert .ai{font-size:15px;flex:none;line-height:1.3}
+.alert.info{background:color-mix(in srgb,#165DFF 8%,transparent);border-color:color-mix(in srgb,#165DFF 22%,transparent);color:var(--ink)}
+.alert.info .ai{color:var(--info)}
+.alert.success{background:var(--success-light);border-color:color-mix(in srgb,#00B42A 22%,transparent);color:var(--ink)}
+.alert.success .ai{color:var(--success)}
+.alert.warning{background:var(--warning-light);border-color:color-mix(in srgb,#FF7D00 22%,transparent);color:var(--ink)}
+.alert.warning .ai{color:var(--warning)}
+.alert.danger{background:var(--danger-light);border-color:color-mix(in srgb,#F53F3F 22%,transparent);color:var(--ink)}
+.alert.danger .ai{color:var(--danger)}
+
+/* ============ Dialog / Modal ============ */
+.mask{position:fixed;inset:0;background:rgba(0,0,0,.45);display:none;align-items:center;justify-content:center;z-index:100;animation:fade .15s ease}
+.mask.on{display:flex}
+@keyframes fade{from{opacity:0}to{opacity:1}}
+.modal{width:460px;max-width:92vw;background:var(--surface);border-radius:var(--radius-4);box-shadow:var(--sh-pop);animation:rise .2s ease;overflow:hidden}
+@keyframes rise{from{opacity:0;transform:translateY(12px) scale(.98)}to{opacity:1;transform:translateY(0) scale(1)}}
+.modal .mh{display:flex;align-items:center;padding:16px 18px 0}
+.modal .mt{font-size:16px;font-weight:600}
+.modal .mx{margin-left:auto;width:28px;height:28px;border-radius:var(--radius-2);display:grid;place-items:center;color:var(--ink-3);font-size:16px}
+.modal .mx:hover{background:var(--surface-hover);color:var(--ink)}
+.modal .mb{padding:8px 18px 4px;font-size:13px;color:var(--ink-2);line-height:1.6}
+.modal .mf{display:flex;justify-content:flex-end;gap:10px;padding:14px 18px 18px}
+
+/* ============ Message / Toast ============ */
+.toast-wrap{position:fixed;top:18px;left:50%;transform:translateX(-50%);z-index:200;display:flex;flex-direction:column;gap:10px;align-items:center}
+.toast{display:flex;align-items:center;gap:9px;background:var(--surface);border:1px solid var(--line);border-radius:var(--radius-3);box-shadow:var(--sh-3);padding:10px 16px;font-size:13.5px;font-weight:500;animation:toastin .25s ease}
+.toast .ti{font-size:15px}
+.toast.success .ti{color:var(--success)}.toast.warning .ti{color:var(--warning)}.toast.error .ti{color:var(--danger)}.toast.info .ti{color:var(--info)}
+@keyframes toastin{from{opacity:0;transform:translateY(-14px)}to{opacity:1;transform:translateY(0)}}
+
+/* ============ Popconfirm ============ */
+.pop{position:absolute;background:var(--surface);border:1px solid var(--line);border-radius:var(--radius-3);box-shadow:var(--sh-3);padding:14px;width:260px;z-index:50;display:none}
+.pop.on{display:block;animation:pop .12s ease}
+.pop .ph{display:flex;gap:9px;font-size:13px;align-items:flex-start}
+.pop .ph .wi{color:var(--warning);font-size:15px;flex:none}
+.pop .pf{display:flex;justify-content:flex-end;gap:8px;margin-top:12px}
+</style>
+</head>
+<body>
+<div class="app">
+  <!-- ===== 图标 rail 导航 ===== -->
+  <aside class="rail">
+    <div class="logo">A</div>
+    <button class="navitem active" data-p="console"><span class="ico">▦</span><span class="lb">控制台</span></button>
+    <button class="navitem" data-p="kb"><span class="ico">▤</span><span class="lb">知识库</span></button>
+    <button class="navitem" data-p="monitor"><span class="ico">◉</span><span class="lb">监控</span></button>
+    <button class="navitem" data-p="cs"><span class="ico">💬</span><span class="lb">客服</span></button>
+    <button class="navitem" data-p="ds"><span class="ico">◳</span><span class="lb">组件库</span></button>
+    <div class="spacer"></div>
+    <button class="navitem bottom"><span class="ico">⚙</span><span class="lb">设置</span></button>
+  </aside>
+
+  <!-- ===== 主区 ===== -->
+  <main class="main">
+    <div class="topbar">
+      <div class="crumb">工作台 / <b id="crumb">控制台</b></div>
+      <div class="search">⌕<input placeholder="全局搜索：实例、知识库、话术…" /></div>
+      <div class="top-actions">
+        <div class="appear">
+          <button class="theme-toggle" id="themeBtn" title="切换明暗主题">🌙</button>
+          <div class="swatches" id="swatches">
+            <span class="sw on" data-a="blue"></span>
+            <span class="sw" data-a="cyan"></span>
+            <span class="sw" data-a="orange"></span>
+          </div>
+        </div>
+        <button class="btn primary sm">＋ 新建</button>
+      </div>
+    </div>
+
+    <div class="content"><div class="wrap" id="stage">
+
+      <!-- ====== 控制台 ====== -->
+      <section data-screen="console">
+        <div class="phead">
+          <div><h1>控制台</h1><p>所有自动化实例集中管理。直接在此启停，不必逐个点进窗口；点实例名即可改名。</p></div>
+          <div class="act"><button class="btn primary">＋ 新建实例</button></div>
+        </div>
+        <div class="grid cols-3">
+          <div class="card icard">
+            <div class="top">
+              <div class="ttool">RPA</div>
+              <div style="flex:1;min-width:0">
+                <div class="iname" contenteditable="true" spellcheck="false">订单自动回复</div>
+                <div class="imeta">窗口：千牛卖家中心 · 数据源 订单.xlsx</div>
+              </div>
+              <span class="status st-run"><span class="d"></span>运行中</span>
+            </div>
+            <div><div class="progress"><i style="width:62%"></i></div>
+              <div class="prow"><span>已处理 124 / 200 行</span><span>剩 11s</span></div></div>
+            <div class="ctrls">
+              <button class="btn sm">⏸ 暂停</button>
+              <button class="btn sm danger-ghost">■ 停止</button>
+              <button class="btn sm secondary">⚙ 配置</button>
+            </div>
+          </div>
+          <div class="card icard">
+            <div class="top">
+              <div class="ttool">MAC</div>
+              <div style="flex:1;min-width:0">
+                <div class="iname" contenteditable="true" spellcheck="false">批量点赞脚本</div>
+                <div class="imeta">窗口：企业微信 · 38 条指令</div>
+              </div>
+              <span class="status st-pause"><span class="d"></span>已暂停</span>
+            </div>
+            <div><div class="progress warn"><i style="width:40%"></i></div>
+              <div class="prow"><span>已执行 15 / 38 步</span><span>人工暂停</span></div></div>
+            <div class="ctrls">
+              <button class="btn sm primary">▶ 继续</button>
+              <button class="btn sm danger-ghost">■ 停止</button>
+              <button class="btn sm secondary">⚙ 配置</button>
+            </div>
+          </div>
+          <div class="card icard">
+            <div class="top">
+              <div class="ttool">MON</div>
+              <div style="flex:1;min-width:0">
+                <div class="iname" contenteditable="true" spellcheck="false">退款关键词监控</div>
+                <div class="imeta">窗口：客服工作台 · 12 条规则</div>
+              </div>
+              <span class="status st-idle"><span class="d"></span>空闲</span>
+            </div>
+            <div class="hint">监控类实例随目标窗口自动待命，无需手动开始。</div>
+            <div class="ctrls">
+              <button class="btn sm primary">▶ 开始</button>
+              <button class="btn sm secondary">⚙ 配置</button>
+            </div>
+          </div>
+          <div class="empty-add">
+            <div class="big">＋</div>
+            <div style="font-weight:600">新建实例</div>
+            <div style="font-size:12px">从模板或空白开始，逐步引导</div>
+            <button class="btn primary sm">＋ 新建</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- ====== 知识库 ====== -->
+      <section data-screen="kb" hidden>
+        <div class="phead"><div><h1>知识库</h1><p>登记资料文件夹做内容索引，按正文或拼音查找。已拆为「管理」与「检索」两个视图。</p></div></div>
+        <div class="tabs" id="kbtabs">
+          <button class="active" data-t="manage">资料管理</button>
+          <button data-t="search">搜索浏览</button>
+        </div>
+        <div class="tabpane on" data-pane="manage">
+          <div class="stat-row">
+            <div class="stat"><div class="v">3,184</div><div class="k">已索引文件</div><div class="h">命中一个文件只算一个</div></div>
+            <div class="stat"><div class="v">9,720</div><div class="k">索引段落</div><div class="h">按段落切分，决定搜索粒度</div></div>
+            <div class="stat"><div class="v">4</div><div class="k">登记文件夹</div><div class="h">注销只撤回索引，不动磁盘</div></div>
+          </div>
+          <div class="card">
+            <div style="padding:14px 16px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:10px">
+              <b style="font-size:14px">已登记文件夹</b>
+              <button class="btn primary sm" style="margin-left:auto">＋ 添加文件夹</button>
+            </div>
+            <div class="folder"><div class="ic">▤</div><div style="flex:1"><div style="font-weight:600;font-size:13.5px">售后话术库</div><div style="font-size:12px;color:var(--ink-3);font-family:monospace">D:\资料\售后话术</div></div><div style="font-size:12.5px;color:var(--ink-3)">1,204 段</div><button class="btn sm secondary">注销</button></div>
+            <div class="folder"><div class="ic">▤</div><div style="flex:1"><div style="font-weight:600;font-size:13.5px">产品手册 2026</div><div style="font-size:12px;color:var(--ink-3);font-family:monospace">D:\资料\产品手册</div></div><div style="font-size:12.5px;color:var(--ink-3)">3,410 段</div><button class="btn sm secondary">注销</button></div>
+            <div class="folder"><div class="ic">▤</div><div style="flex:1"><div style="font-weight:600;font-size:13.5px">退款政策 PDF</div><div style="font-size:12px;color:var(--ink-3);font-family:monospace">D:\资料\政策</div></div><div style="font-size:12.5px;color:var(--ink-3)">86 段</div><button class="btn sm secondary">注销</button></div>
+          </div>
+        </div>
+        <div class="tabpane" data-pane="search">
+          <div class="searchbox">⌕<input placeholder="搜资料内容…支持中文、拼音首字母（tkzc）、type:pdf" /><button class="btn primary sm">搜索</button></div>
+          <div class="card" style="margin-top:14px">
+            <div style="padding:12px 16px;border-bottom:1px solid var(--line);font-size:12.5px;color:var(--ink-3)">找到 <b style="color:var(--ink)">3</b> 个文件 · 按相关度排序</div>
+            <div class="res"><div class="ric">PDF</div><div style="flex:1"><div class="ft">pdf</div><div class="fn">退款政策_v3.pdf</div><div class="snip">…买家在收货后 <mark>7</mark> 天内可申请<mark>退款</mark>，运费由…</div></div><button class="btn sm secondary">打开</button></div>
+            <div class="res"><div class="ric">DOC</div><div style="flex:1"><div class="ft">docx</div><div class="fn">售后话术-退款场景.docx</div><div class="snip">…先安抚情绪，再说明<mark>退款</mark>流程，承诺 24h 内处理…</div></div><button class="btn sm secondary">打开</button></div>
+            <div class="res"><div class="ric">XLS</div><div style="flex:1"><div class="ft">xlsx</div><div class="fn">退款台账.xlsx</div><div class="snip">…本月<mark>退款</mark>共 142 笔，平均处理时长 1.8 天…</div></div><button class="btn sm secondary">打开</button></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ====== 监控 ====== -->
+      <section data-screen="monitor" hidden>
+        <div class="phead"><div><h1>监控与提醒</h1><p>命中关键词时在屏幕中央弹出醒目提醒并播声音。声音可按实例单独设置（内置铃声或上传自定义音频）；弹窗内置快捷动作。</p></div></div>
+        <div class="grid cols-2">
+          <div>
+            <div class="sec-title">命中效果预览<span class="ln"></span></div>
+            <div class="alert-demo">
+              <button class="btn sm secondary" id="simHit" style="position:absolute;bottom:14px;left:16px">↻ 模拟一次命中</button>
+              <div class="alert-pop" id="alertPop">
+                <div class="bad">!</div>
+                <div style="flex:1">
+                  <div class="sc">监控命中 · 退款关键词监控</div>
+                  <div class="tt">检测到「我要退款」</div>
+                  <div class="ms">客户：在吗？这个东西我不想要了，我要退款。<br/>窗口：客服工作台 · 会话 #20481</div>
+                  <div class="acts">
+                    <button class="btn sm primary" id="openWin">打开会话窗口</button>
+                    <button class="btn sm outline" id="sendReply">发送安抚话术</button>
+                    <button class="btn sm secondary" id="dismissHit">忽略</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div>
+            <div class="sec-title">实例提醒声音<span class="ln"></span></div>
+            <div class="card sound-card">
+              <div style="font-weight:600;font-size:14px;margin-bottom:3px">退款关键词监控</div>
+              <div class="hint" style="margin-bottom:12px">该实例命中时播放的声音</div>
+              <div class="preset sel"><div class="play">▶</div><div style="flex:1"><div class="nm">清脆叮咚</div><div class="ds">内置 · 适合常规提醒</div></div><span class="tag primary">当前</span></div>
+              <div class="preset"><div class="play">▶</div><div style="flex:1"><div class="nm">急促警报</div><div class="ds">内置 · 高风险词专用</div></div></div>
+              <div class="preset"><div class="play">▶</div><div style="flex:1"><div class="nm">柔和提示</div><div class="ds">内置 · 低频监控</div></div></div>
+              <div class="upload">⬆ 拖入或点击上传音频（.mp3 / .wav）<br/>例：用你们公司的专属提示音</div>
+            </div>
+            <div class="card sound-card" style="margin-top:14px">
+              <div style="font-weight:600;font-size:14px;margin-bottom:6px">全局默认</div>
+              <div class="hint">新实例未单独设置时沿用此项。其余 3 个实例已各自绑定不同声音。</div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ====== 客服工具 ====== -->
+      <section data-screen="cs" hidden>
+        <div class="phead"><div><h1>客服工具</h1><p>面向客服公司的增强能力。话术库与会话质检已可落地（复用窗口枚举与监控引擎），客户侧边栏为规划项。</p></div></div>
+        <div class="tabs" id="cstabs">
+          <button class="active" data-t="reply">话术库</button>
+          <button data-t="qa">会话质检</button>
+          <button data-t="cust">客户侧边栏</button>
+        </div>
+        <div class="tabpane on" data-pane="reply">
+          <div class="cs-grid">
+            <div class="card cs-card">
+              <div class="hd"><div class="ci">💬</div><div><div style="font-weight:700">话术库</div><div style="font-size:12px;color:var(--ink-3)">侧边栏一键发送到当前会话</div></div></div>
+              <div class="reply"><span class="tag primary">退款</span><div class="tx">亲，非常抱歉给您带来不便～已为您登记退款，预计 24h 内处理。</div><button class="btn primary sm send">发送</button></div>
+              <div class="reply"><span class="tag">物流</span><div class="tx">您的包裹已在途中，点击链接可查看实时轨迹：{物流单号}</div><button class="btn primary sm send">发送</button></div>
+              <div class="reply"><span class="tag">安抚</span><div class="tx">完全理解您的心情，这对我们也很重要，马上帮您跟进。</div><button class="btn primary sm send">发送</button></div>
+              <button class="btn sm" style="margin-top:2px">＋ 新建话术</button>
+              <div class="hint">发送自动填入当前聚焦的千牛/企微窗口；支持 {变量} 模板。</div>
+            </div>
+            <div class="card cs-card">
+              <div class="hd"><div class="ci">🛡</div><div><div style="font-weight:700">会话质检</div><div style="font-size:12px;color:var(--ink-3)">复用监控引擎，零成本</div></div></div>
+              <div class="rule"><span class="switch on" data-sw><i></i></span><div class="info"><div class="nm">承诺类话术</div><div class="ds">检测到“包退/绝对没问题”→ 预警</div></div></div>
+              <div class="rule"><span class="switch on" data-sw><i></i></span><div class="info"><div class="nm">敏感词</div><div class="ds">辱骂/竞品名 → 命中提醒</div></div></div>
+              <div class="rule"><span class="switch" data-sw><i></i></span><div class="info"><div class="nm">响应超时</div><div class="ds">超 120s 未回复 → 提醒</div></div></div>
+              <div class="hint">命中的会话走监控提醒链路（居中弹窗 + 声音），与现有监控共用一套。</div>
+            </div>
+            <div class="card cs-card">
+              <div class="hd"><div class="ci" style="background:var(--surface-3);color:var(--ink-3)">👤</div><div><div style="font-weight:700">客户侧边栏</div><div style="font-size:12px;color:var(--ink-3)">规划中 · 需接数据源</div></div><span class="tag">规划</span></div>
+              <div class="side-mock">
+                <div class="sh">👤 客户信息 · 会话聚焦时自动显示</div>
+                <div class="bd">
+                  <div class="kv"><span class="k">昵称</span><span class="v">尾款怪盗</span></div>
+                  <div class="kv"><span class="k">历史订单</span><span class="v">17 笔</span></div>
+                  <div class="kv"><span class="k">累计金额</span><span class="v">¥4,820</span></div>
+                  <div><span class="chip">VIP</span><span class="chip">易投诉</span><span class="chip">上月退款×2</span></div>
+                </div>
+              </div>
+              <div class="hint">第二阶段：弹窗即显该客户历史工单/订单，需对接你的订单系统。</div>
+            </div>
+          </div>
+        </div>
+        <div class="tabpane" data-pane="qa"><div class="card" style="padding:40px;text-align:center;color:var(--ink-3)">会话质检视图（见左侧卡片）· 规则命中即触发监控提醒</div></div>
+        <div class="tabpane" data-pane="cust"><div class="card" style="padding:40px;text-align:center;color:var(--ink-3)">客户侧边栏预览（见左侧卡片）· 规划中</div></div>
+      </section>
+
+      <!-- ====== 组件库（深度精修展示） ====== -->
+      <section data-screen="ds" hidden>
+        <div class="phead"><div><h1>组件库</h1><p>基于 Arco Design 取向统一梳理的设计系统。每个组件都按「默认 / 悬停 / 聚焦 / 禁用 / 错误 / 状态色」精修，浅色与深色主题、三种强调色下一致可用。</p></div></div>
+
+        <div class="ds-section">
+          <div class="sec-title">按钮 Button<span class="ln"></span></div>
+          <p class="desc">5 种类型 × 状态色 × 4 档尺寸；主按钮带轻微投影，悬停提亮、按下加深。</p>
+          <div class="ds-row"><span class="ds-sub">类型</span>
+            <button class="btn primary">主要按钮</button>
+            <button class="btn secondary">次要按钮</button>
+            <button class="btn outline">次次要</button>
+            <button class="btn dashed">虚线</button>
+            <button class="btn text">文字按钮</button>
+          </div>
+          <div class="ds-row"><span class="ds-sub">状态色</span>
+            <button class="btn success">成功</button>
+            <button class="btn warning">警告</button>
+            <button class="btn danger">危险</button>
+            <button class="btn danger-ghost">危险幽灵</button>
+          </div>
+          <div class="ds-row"><span class="ds-sub">尺寸</span>
+            <button class="btn primary mini">迷你</button>
+            <button class="btn primary sm">小</button>
+            <button class="btn primary">默认</button>
+            <button class="btn primary lg">大</button>
+          </div>
+          <div class="ds-row"><span class="ds-sub">形状</span>
+            <button class="btn primary round">圆角</button>
+            <button class="btn primary circle">＋</button>
+            <button class="btn primary"><span class="ld"></span>加载中</button>
+            <button class="btn secondary" disabled>禁用</button>
+          </div>
+        </div>
+
+        <div class="ds-section">
+          <div class="sec-title">输入框 Input<span class="ln"></span></div>
+          <p class="desc">聚焦时描边变强调色并加 3px 光环；支持前缀图标、清空、密码可见、前后缀。</p>
+          <div class="grid cols-2">
+            <div>
+              <div class="field"><label>默认 / 聚焦</label>
+                <div class="inp"><span class="pre">⌕</span><input placeholder="请输入内容" /></div>
+              </div>
+              <div class="field"><label>带前缀图标 + 清空</label>
+                <div class="inp"><span class="pre">👤</span><input value="尾款怪盗" /><span class="suf">✕</span></div>
+              </div>
+            </div>
+            <div>
+              <div class="field"><label class="req">必填且报错</label>
+                <div class="inp error"><input value="abc" /><span class="suf">!</span></div>
+                <div class="help err">窗口标题不能为空，请填写后重试</div>
+              </div>
+              <div class="field"><label>禁用</label>
+                <div class="inp disabled"><input value="只读内容" disabled /></div>
+              </div>
+            </div>
+          </div>
+          <div class="ds-row"><span class="ds-sub">前后缀</span>
+            <div class="addon"><div class="inp" style="width:200px"><input placeholder="搜索" /></div><div class="add">搜索</div></div>
+            <div class="inp" style="width:200px"><input value="autoplay" /><span class="suf">.exe</span></div>
+          </div>
+        </div>
+
+        <div class="ds-section">
+          <div class="sec-title">表单 Form<span class="ln"></span></div>
+          <p class="desc">标签左对齐、必填红标、底部帮助/错误文案，与输入框状态联动。</p>
+          <div class="card" style="padding:20px">
+            <div class="field"><label class="req">实例名称</label>
+              <div class="inp"><input placeholder="给实例起个名字" /></div>
+            </div>
+            <div class="field"><label class="req">绑定窗口</label>
+              <div class="inp error"><input value="" /><span class="suf">▾</span></div>
+              <div class="help err">请选择要操作的窗口</div>
+            </div>
+            <div class="field"><label>每行发送间隔 (ms)</label>
+              <div class="inp"><input value="500" /><span class="suf">ms</span></div>
+              <div class="help">间隔过小可能被风控限流，建议 ≥ 300</div>
+            </div>
+            <div class="field" style="margin-bottom:0"><label>启用监控</label>
+              <div style="display:flex;align-items:center;gap:10px"><span class="switch on" data-sw><i></i></span><span style="font-size:13px;color:var(--ink-2)">开启后命中关键词自动提醒</span></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="ds-section">
+          <div class="sec-title">选择 / 开关 / 标签<span class="ln"></span></div>
+          <div class="ds-row">
+            <div class="select" id="demoSelect">
+              <div class="inp">千牛卖家中心 <span style="color:var(--ink-3)">▾</span></div>
+              <div class="menu"><div class="opt sel">千牛卖家中心</div><div class="opt">企业微信</div><div class="opt">客服工作台</div><div class="opt">拼多多商家版</div></div>
+            </div>
+            <span class="switch on" data-sw><i></i></span>
+            <span class="switch sm on" data-sw><i></i></span>
+            <span class="tag primary">退款</span><span class="tag success">已成功</span><span class="tag warning">待处理</span><span class="tag danger">失败</span>
+            <span class="badge"><span class="btn circle sm secondary">✉</span><span class="b">5</span></span>
+          </div>
+        </div>
+
+        <div class="ds-section">
+          <div class="sec-title">提示 Alert / Message / Popconfirm<span class="ln"></span></div>
+          <div class="alert info"><span class="ai">ℹ</span><div>这是一条信息提示，用于中性说明。</div></div>
+          <div class="alert success"><span class="ai">✓</span><div>操作成功，实例已创建。</div></div>
+          <div class="alert warning"><span class="ai">⚠</span><div>间隔低于 300ms，可能触发风控限流。</div></div>
+          <div class="alert danger"><span class="ai">✕</span><div>引擎连接失败，请检查 Python 侧车是否在运行。</div></div>
+          <div class="ds-row" style="margin-top:14px">
+            <button class="btn primary sm" onclick="toast('success','已发送安抚话术到当前窗口')">触发 Message</button>
+            <button class="btn secondary sm" id="popBtn">删除确认 (Popconfirm)</button>
+            <div class="pop" id="popDemo">
+              <div class="ph"><span class="wi">⚠</span><div>确认删除该实例？<br/><span style="font-size:12px;color:var(--ink-3)">删除后配置与运行记录不可恢复。</span></div></div>
+              <div class="pf"><button class="btn sm secondary" onclick="document.getElementById('popDemo').classList.remove('on')">取消</button><button class="btn sm danger" onclick="toast('error','已删除实例');document.getElementById('popDemo').classList.remove('on')">删除</button></div>
+            </div>
+            <button class="btn secondary sm" id="openModal">打开对话框</button>
+          </div>
+        </div>
+      </section>
+
+    </div></div>
+  </main>
+</div>
+
+<!-- Dialog -->
+<div class="mask" id="modal">
+  <div class="modal">
+    <div class="mh"><div class="mt">新建实例</div><button class="mx" onclick="closeModal()">✕</button></div>
+    <div class="mb">为实例设置名称与类型。创建后可随时在控制台改名、配置执行策略。</div>
+    <div class="mf"><button class="btn secondary" onclick="closeModal()">取消</button><button class="btn primary" onclick="closeModal();toast('success','实例已创建')">确定</button></div>
+  </div>
+</div>
+<!-- Toast 容器 -->
+<div class="toast-wrap" id="toastWrap"></div>
+
+<script>
+/* 导航切换 */
+const crumbs={console:'控制台',kb:'知识库',monitor:'监控与提醒',cs:'客服工具',ds:'组件库'};
+function show(p){
+  document.querySelectorAll('[data-screen]').forEach(s=>s.hidden=s.dataset.screen!==p);
+  document.querySelectorAll('.rail .navitem').forEach(b=>b.classList.toggle('active',b.dataset.p===p));
+  document.getElementById('crumb').textContent=crumbs[p];
+}
+document.querySelectorAll('.rail .navitem').forEach(b=>b.onclick=()=>show(b.dataset.p));
+
+/* 顶栏：主题切换 */
+const themeBtn=document.getElementById('themeBtn');
+themeBtn.onclick=()=>{
+  const h=document.documentElement;
+  const dark=h.getAttribute('data-theme')==='dark';
+  h.setAttribute('data-theme',dark?'light':'dark');
+  themeBtn.textContent=dark?'🌙':'☀';
+};
+
+/* 强调色切换 */
+document.querySelectorAll('#swatches .sw').forEach(s=>s.onclick=()=>{
+  document.querySelectorAll('#swatches .sw').forEach(x=>x.classList.remove('on'));
+  s.classList.add('on');
+  document.documentElement.setAttribute('data-accent',s.dataset.a);
+});
+
+/* 内 Tab：知识库 / 客服 */
+function bindTabs(id){
+  const tabs=document.getElementById(id);
+  tabs.querySelectorAll('button').forEach(b=>b.onclick=()=>{
+    tabs.querySelectorAll('button').forEach(x=>x.classList.remove('active'));
+    b.classList.add('active');
+    const t=b.dataset.t;
+    tabs.parentElement.querySelectorAll('[data-pane]').forEach(p=>p.classList.toggle('on',p.dataset.pane===t));
+  });
+}
+bindTabs('kbtabs');bindTabs('cstabs');
+
+/* 声音预设选中 */
+document.querySelectorAll('.preset').forEach(p=>p.onclick=()=>{
+  document.querySelectorAll('.preset').forEach(x=>{x.classList.remove('sel');const tg=x.querySelector('.tag');if(tg)tg.remove();});
+  p.classList.add('sel');
+  const tag=document.createElement('span');tag.className='tag primary';tag.textContent='当前';p.appendChild(tag);
+});
+
+/* 开关 */
+document.querySelectorAll('[data-sw]').forEach(s=>s.onclick=()=>s.classList.toggle('on'));
+
+/* 下拉选择 */
+document.querySelectorAll('.select').forEach(s=>{
+  s.querySelector('.inp').onclick=(e)=>{e.stopPropagation();s.classList.toggle('open');};
+  s.querySelectorAll('.opt').forEach(o=>o.onclick=()=>{
+    s.querySelectorAll('.opt').forEach(x=>x.classList.remove('sel'));o.classList.add('sel');
+    s.querySelector('.inp').innerHTML=o.textContent+' <span style="color:var(--ink-3)">▾</span>';s.classList.remove('open');
+  });
+});
+document.addEventListener('click',()=>document.querySelectorAll('.select.open').forEach(s=>s.classList.remove('open')));
+
+/* 监控弹窗交互 */
+const alertPop=document.getElementById('alertPop');
+document.getElementById('simHit').onclick=()=>{alertPop.style.display='flex';alertPop.style.animation='none';void alertPop.offsetWidth;alertPop.style.animation='drop .45s ease';};
+document.getElementById('openWin').onclick=()=>toast('info','已打开会话窗口 #20481');
+document.getElementById('sendReply').onclick=()=>toast('success','已发送安抚话术到当前窗口');
+document.getElementById('dismissHit').onclick=()=>alertPop.style.display='none';
+
+/* Modal */
+function closeModal(){document.getElementById('modal').classList.remove('on');}
+document.getElementById('openModal').onclick=()=>document.getElementById('modal').classList.add('on');
+document.getElementById('modal').onclick=(e)=>{if(e.target.id==='modal')closeModal();};
+
+/* Popconfirm */
+document.getElementById('popBtn').onclick=(e)=>{e.stopPropagation();document.getElementById('popDemo').classList.toggle('on');};
+document.addEventListener('click',()=>document.getElementById('popDemo').classList.remove('on'));
+
+/* Toast */
+function toast(type,msg){
+  const wrap=document.getElementById('toastWrap');
+  const el=document.createElement('div');
+  el.className='toast '+type;
+  const icon=type==='success'?'✓':type==='warning'?'⚠':type==='error'?'✕':'ℹ';
+  el.innerHTML='<span class="ti">'+icon+'</span>'+msg;
+  wrap.appendChild(el);
+  setTimeout(()=>{el.style.transition='.25s';el.style.opacity='0';el.style.transform='translateY(-10px)';setTimeout(()=>el.remove(),250);},2200);
+}
+</script>
+</body>
+</html>

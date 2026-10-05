@@ -1,0 +1,156 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>原型 · 客服流程分步引导（样式优化）</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+  tailwind.config = { theme: { extend: { colors: { brand: { 50:'#eef2ff',100:'#e0e7ff',500:'#6366f1',600:'#4f46e5',700:'#4338ca' } } } } }
+</script>
+<style>
+  .focusable:focus-visible { outline: none; box-shadow: 0 0 0 2px #fff, 0 0 0 4px #6366f1; }
+  /* 卡片悬停：轻微上浮 + 主色描边，强化"可点" */
+  .card:hover { transform: translateY(-2px); border-color:#6366f1; box-shadow: 0 8px 20px -8px rgba(79,70,229,.35); }
+  .card { transition: transform .15s ease, border-color .15s ease, box-shadow .15s ease; }
+</style>
+</head>
+<body class="bg-slate-50 text-slate-900 antialiased">
+<div class="mx-auto max-w-5xl p-6">
+  <div class="mb-4 flex flex-wrap items-center justify-between gap-3">
+    <div>
+      <h1 class="text-lg font-semibold">客服流程分步引导</h1>
+      <p class="text-xs text-slate-500">原型（功能 3 · 样式优化）· 方案浏览器（多方案可搜索）+ 混合步骤：说明 + 截图圈选</p>
+    </div>
+    <button class="focusable rounded-md bg-brand-600 px-3 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-brand-700">+ 新建方案</button>
+  </div>
+
+  <!-- 搜索 + 分类筛选 + 排序 -->
+  <div class="mb-4 flex flex-wrap items-center gap-2">
+    <div class="relative min-w-[220px] flex-1">
+      <label for="q" class="sr-only">搜索方案</label>
+      <span class="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" aria-hidden="true">🔍</span>
+      <input id="q" class="focusable w-full rounded-lg border border-slate-200 bg-white py-2 pl-9 pr-3 text-sm outline-none transition placeholder:text-slate-400 focus:border-brand-500" placeholder="搜索方案名 / 标签，如「退款」「物流」" />
+    </div>
+    <div class="flex flex-wrap gap-1.5" role="group" aria-label="按分类筛选">
+      <button class="focusable rounded-full bg-brand-600 px-3 py-1.5 text-xs font-medium text-white">全部</button>
+      <button class="focusable rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-600 transition hover:bg-slate-50">售后</button>
+      <button class="focusable rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-600 transition hover:bg-slate-50">物流</button>
+      <button class="focusable rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-600 transition hover:bg-slate-50">投诉</button>
+    </div>
+    <label for="sort" class="sr-only">排序方式</label>
+    <select id="sort" class="focusable rounded-lg border border-slate-200 bg-white px-2.5 py-2 text-xs text-slate-700 outline-none transition focus:border-brand-500">
+      <option>最近编辑</option><option>最近使用</option><option>步骤最多</option>
+    </select>
+  </div>
+
+  <!-- 结果计数（20 个方案时给出反馈） -->
+  <p class="mb-2 text-[11px] text-slate-500">共 <b class="text-slate-700">12</b> 个方案<span class="text-slate-400">（已筛选，显示 3 个）</span></p>
+
+  <!-- 方案卡片网格 -->
+  <div class="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+    <!-- 选中态：主色实边 + 角标 -->
+    <article class="card relative rounded-xl border-2 border-brand-600 bg-brand-50/70 p-3 shadow-sm">
+      <span class="absolute -top-2 left-3 rounded-md bg-brand-600 px-1.5 py-0.5 text-[10px] font-medium text-white">当前</span>
+      <div class="flex items-start justify-between gap-2">
+        <h3 class="text-sm font-semibold text-brand-700">退款处理方案</h3>
+        <span class="shrink-0 rounded-md bg-white/80 px-1.5 py-0.5 text-[10px] font-medium text-brand-700">售后</span>
+      </div>
+      <div class="mt-1 text-[11px] text-slate-600">4 步 · 最近编辑 10-04</div>
+      <!-- 步骤小预览点 -->
+      <div class="mt-2 flex items-center gap-1" aria-hidden="true">
+        <span class="h-1.5 w-6 rounded-full bg-brand-500"></span><span class="h-1.5 w-6 rounded-full bg-brand-500"></span><span class="h-1.5 w-6 rounded-full bg-brand-300"></span><span class="h-1.5 w-6 rounded-full bg-brand-300"></span>
+      </div>
+      <div class="mt-2.5 flex gap-1.5 text-[11px]">
+        <button class="focusable rounded-md bg-brand-600 px-2.5 py-1.5 font-medium text-white transition hover:bg-brand-700">打开</button>
+        <button class="focusable rounded-md border border-slate-200 bg-white px-2.5 py-1.5 font-medium text-slate-600 transition hover:bg-slate-50">复制</button>
+        <button class="focusable rounded-md border border-slate-200 bg-white px-2.5 py-1.5 font-medium text-rose-600 transition hover:bg-rose-50">删除</button>
+      </div>
+    </article>
+
+    <article class="card rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
+      <div class="flex items-start justify-between gap-2">
+        <h3 class="text-sm font-semibold text-slate-900">发货跟进方案</h3>
+        <span class="shrink-0 rounded-md bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-600">物流</span>
+      </div>
+      <div class="mt-1 text-[11px] text-slate-600">3 步 · 最近编辑 10-02</div>
+      <div class="mt-2 flex items-center gap-1" aria-hidden="true">
+        <span class="h-1.5 w-6 rounded-full bg-brand-300"></span><span class="h-1.5 w-6 rounded-full bg-brand-300"></span><span class="h-1.5 w-6 rounded-full bg-brand-300"></span>
+      </div>
+      <div class="mt-2.5 flex gap-1.5 text-[11px]">
+        <button class="focusable rounded-md border border-slate-200 bg-white px-2.5 py-1.5 font-medium text-slate-700 transition hover:bg-slate-50">打开</button>
+        <button class="focusable rounded-md border border-slate-200 bg-white px-2.5 py-1.5 font-medium text-slate-600 transition hover:bg-slate-50">复制</button>
+        <button class="focusable rounded-md border border-slate-200 bg-white px-2.5 py-1.5 font-medium text-rose-600 transition hover:bg-rose-50">删除</button>
+      </div>
+    </article>
+
+    <article class="card rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
+      <div class="flex items-start justify-between gap-2">
+        <h3 class="text-sm font-semibold text-slate-900">投诉处理方案</h3>
+        <span class="shrink-0 rounded-md bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-600">投诉</span>
+      </div>
+      <div class="mt-1 text-[11px] text-slate-600">5 步 · 最近编辑 09-28</div>
+      <div class="mt-2 flex items-center gap-1" aria-hidden="true">
+        <span class="h-1.5 w-6 rounded-full bg-slate-300"></span><span class="h-1.5 w-6 rounded-full bg-slate-300"></span><span class="h-1.5 w-6 rounded-full bg-slate-300"></span><span class="h-1.5 w-6 rounded-full bg-slate-300"></span><span class="h-1.5 w-6 rounded-full bg-slate-300"></span>
+      </div>
+      <div class="mt-2.5 flex gap-1.5 text-[11px]">
+        <button class="focusable rounded-md border border-slate-200 bg-white px-2.5 py-1.5 font-medium text-slate-700 transition hover:bg-slate-50">打开</button>
+        <button class="focusable rounded-md border border-slate-200 bg-white px-2.5 py-1.5 font-medium text-slate-600 transition hover:bg-slate-50">复制</button>
+        <button class="focusable rounded-md border border-slate-200 bg-white px-2.5 py-1.5 font-medium text-rose-600 transition hover:bg-rose-50">删除</button>
+      </div>
+    </article>
+
+    <!-- 新建卡片：虚线 + 居中 -->
+    <button class="focusable flex min-h-[132px] flex-col items-center justify-center gap-1 rounded-xl border border-dashed border-brand-300 bg-brand-50/40 p-3 text-xs font-medium text-brand-600 transition hover:bg-brand-50">
+      <span class="text-lg" aria-hidden="true">＋</span> 新建方案
+    </button>
+  </div>
+
+  <!-- 选中方案：分步阅读视图（说明 + 截图圈选） -->
+  <section class="mt-6 rounded-xl border border-slate-200 bg-white p-4 shadow-sm" aria-labelledby="stepTitle">
+    <div class="mb-3 flex flex-wrap items-center justify-between gap-2">
+      <h2 id="stepTitle" class="text-sm font-semibold">退款处理方案 · 分步引导</h2>
+      <div class="flex items-center gap-2">
+        <span class="text-[11px] text-slate-500">第 <b class="text-slate-700">1</b> / 4 步</span>
+        <!-- 进度条：可视进度 -->
+        <div class="h-1.5 w-28 overflow-hidden rounded-full bg-slate-100" role="progressbar" aria-valuenow="1" aria-valuemin="1" aria-valuemax="4" aria-label="引导进度"><div class="h-full w-1/4 rounded-full bg-brand-600"></div></div>
+      </div>
+    </div>
+
+    <div class="grid grid-cols-1 gap-4 md:grid-cols-[1fr_260px]">
+      <!-- 步骤说明 -->
+      <div>
+        <h3 class="text-base font-semibold text-slate-900">① 接收退款申请</h3>
+        <p class="mt-1.5 rounded-lg border border-slate-100 bg-slate-50 p-3 text-sm leading-relaxed text-slate-700">
+          在客服系统打开「退款」页，粘贴订单号，确认买家已寄回。
+        </p>
+        <div class="mt-3 flex flex-wrap gap-2">
+          <button class="focusable rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-500 transition" disabled aria-disabled="true">← 上一步</button>
+          <button class="focusable rounded-md bg-brand-600 px-3.5 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-brand-700">下一步 →</button>
+          <button class="focusable rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-600 transition hover:bg-slate-50">标记完成</button>
+        </div>
+      </div>
+
+      <!-- 截图 + 圈选高亮（纯图片步骤靠这个） -->
+      <figure class="overflow-hidden rounded-lg border border-slate-200 bg-slate-50">
+        <div class="relative aspect-[4/3] w-full">
+          <img src="data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='320' height='240'><rect width='320' height='240' fill='%23e2e8f0'/><rect x='24' y='30' width='150' height='26' rx='6' fill='%23cbd5e1'/><rect x='24' y='74' width='200' height='12' rx='6' fill='%23cbd5e1'/><rect x='24' y='98' width='170' height='12' rx='6' fill='%23cbd5e1'/><rect x='24' y='140' width='120' height='34' rx='8' fill='%2394a3b8'/></svg>" alt="步骤 1 截图占位：退款页与订单号输入框" class="h-full w-full object-cover" />
+          <!-- 圈选高亮框：绝对定位 + 脉冲提示 -->
+          <span class="absolute left-[18%] top-[32%] h-[22%] w-[40%] rounded-md border-2 border-rose-500 shadow-[0_0_0_9999px_rgba(15,23,42,0.18)]" aria-hidden="true"></span>
+        </div>
+        <figcaption class="border-t border-slate-200 bg-white px-2.5 py-1.5 text-[11px] text-slate-600">红框 = 要点的位置（截图可直接上传，无需做图工具）</figcaption>
+      </figure>
+    </div>
+
+    <!-- 步骤缩略导航：一眼看清流程全貌 + 跳步 -->
+    <nav class="mt-4 flex flex-wrap gap-1.5 border-t border-slate-100 pt-3" aria-label="步骤导航">
+      <button class="focusable rounded-md bg-brand-600 px-2.5 py-1.5 text-[11px] font-medium text-white">1 接收申请</button>
+      <button class="focusable rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-[11px] font-medium text-slate-600 transition hover:bg-slate-50">2 核对物流</button>
+      <button class="focusable rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-[11px] font-medium text-slate-600 transition hover:bg-slate-50">3 发起退款</button>
+      <button class="focusable rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-[11px] font-medium text-slate-600 transition hover:bg-slate-50">4 告知买家</button>
+      <button class="focusable rounded-md border border-dashed border-slate-300 px-2.5 py-1.5 text-[11px] font-medium text-slate-500 transition hover:bg-slate-50">+ 加一步</button>
+    </nav>
+  </section>
+</div>
+</body>
+</html>

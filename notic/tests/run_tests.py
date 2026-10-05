@@ -854,6 +854,39 @@ def test_upload_flow_logging():
     assert any("失败" in m and "缺.png" in m for m in msgs), f"读取失败未落日志: {msgs}"
 
 
+def test_alert_popup_refresh_restarts_auto_hide():
+    """连续两次报警：第二次必须**重排**自动消失的计时。
+
+    旧实现每次 refresh 都排一个新的 QTimer.singleShot 且从不取消前一个：
+    第一次的计时到点会把第二次的弹窗提前隐藏。监控场景里
+    「没看见 = 没报警」，这是最不能接受的失败方式。
+    """
+    import time as _time
+    import app.ui.alert_popup as ap
+
+    ap.show_alert_popup("第一次", "短展示", 1000)      # 实际按下限 2500ms 排
+    ap.show_alert_popup("第二次", "长展示", 6000)
+    try:
+        app.processEvents()
+        # 熬过第一次的 2500ms：此时应当**仍然可见**（计时已被重排到 6000ms）
+        deadline = _time.time() + 3.2
+        while _time.time() < deadline:
+            app.processEvents()
+            _time.sleep(0.02)
+        assert ap._POPUP is not None and ap._POPUP.isVisible(), \
+            "第二次报警被第一次的计时提前隐藏了（新弹窗只显示了约 2.5 秒）"
+        # 本次时长到点后必须自动消失 —— 自动隐藏本身没坏
+        deadline = _time.time() + 4.0
+        while _time.time() < deadline and ap._POPUP is not None and ap._POPUP.isVisible():
+            app.processEvents()
+            _time.sleep(0.02)
+        assert ap._POPUP is not None and not ap._POPUP.isVisible(), \
+            "重排之后仍应在本次时长结束时自动消失"
+    finally:
+        if ap._POPUP is not None:
+            ap._POPUP.hide()
+
+
 if __name__ == "__main__":
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     failed = 0

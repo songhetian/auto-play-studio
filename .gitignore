@@ -22,6 +22,10 @@ venv/
 # 测试缓存
 .pytest_cache/
 
+# 知识库语义检索的模型资产（bge-small-zh-v1.5，~24MB 二进制），
+# 每台机器用 python/scripts/fetch_kb_model.py 按需拉，不入仓库
+python/engine/kb/models/
+
 # 移植来源的参考仓库：know（全文检索）与 compare-excel（多表对比）的算法
 # 已整体移植进 python/engine/kb 与 python/engine/compare，本地留作备查即可。
 # 注意 notic 不是参考件而是**运行时依赖**：engine/monitor.py 把仓库根 notic 加进 sys.path，
@@ -35,3 +39,4 @@ notic/zones/
 .workbuddy/
 .scratch/*
 !.scratch/cs-toolkit/
+desk/

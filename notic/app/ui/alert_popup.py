@@ -30,32 +30,45 @@ def show_alert_popup(title, message, timeout_ms=5000):
 
 
 class _AlertPopup(QWidget):
-    """右上角置顶实心告警卡。"""
+    """右上角置顶实心告警卡。
+
+    重做后的视觉：更宽更高、更粗的红色顶栏、更大的警示图标与标题，
+    命中时一眼就能注意到（监控场景里"没看见"等于"没报警"）。
+    仍保持实心无动画 —— 透明+动画会触发 DWM 合成，与监控抓屏 GDI 抢资源。
+    """
 
     STYLE = """
         QWidget#root {
             background: #FFFFFF;
-            border: 1px solid #E3E6EA;
-            border-top: 4px solid #E5484D;
+            border: 2px solid #E5484D;
+            border-top: 8px solid #E5484D;
+            border-radius: 10px;
+        }
+        QLabel#kickerLabel {
+            color: #E5484D;
+            font-size: 11px;
+            font-weight: 700;
+            background: transparent;
+            border: none;
         }
         QLabel#iconLabel {
-            background: #FDEBEC;
-            color: #E5484D;
-            font-size: 17px;
-            font-weight: 600;
+            background: #E5484D;
+            color: #FFFFFF;
+            font-size: 30px;
+            font-weight: 700;
             border: none;
-            border-radius: 15px;
+            border-radius: 22px;
         }
         QLabel#titleLabel {
             color: #1F2329;
-            font-size: 15px;
-            font-weight: 600;
+            font-size: 18px;
+            font-weight: 700;
             background: transparent;
             border: none;
         }
         QLabel#msgLabel {
-            color: #5B616B;
-            font-size: 12px;
+            color: #4E5969;
+            font-size: 13px;
             font-weight: 400;
             background: transparent;
             border: none;
@@ -77,33 +90,44 @@ class _AlertPopup(QWidget):
         self.winId()
 
         # 图标徽章
-        icon = QLabel("⚠")
+        icon = QLabel("!")
         icon.setObjectName("iconLabel")
-        icon.setFixedSize(30, 30)
+        icon.setFixedSize(44, 44)
         icon.setAlignment(Qt.AlignCenter)
 
         text_box = QVBoxLayout()
-        text_box.setSpacing(3)
+        text_box.setSpacing(4)
+        kicker = QLabel("命中提醒")
+        kicker.setObjectName("kickerLabel")
         self._title_label = QLabel("")
         self._title_label.setObjectName("titleLabel")
         self._msg_label = QLabel("")
         self._msg_label.setObjectName("msgLabel")
         self._msg_label.setWordWrap(True)
         # 限制横幅最大宽度：顶部居中提示不宜横向铺满半屏
-        self._msg_label.setMaximumWidth(460)
+        self._msg_label.setMaximumWidth(520)
+        text_box.addWidget(kicker)
         text_box.addWidget(self._title_label)
         text_box.addWidget(self._msg_label)
 
         layout = QHBoxLayout(self)
-        layout.setContentsMargins(16, 14, 20, 14)
-        layout.setSpacing(12)
+        layout.setContentsMargins(20, 18, 24, 18)
+        layout.setSpacing(16)
         layout.addWidget(icon, 0, Qt.AlignVCenter)
         layout.addLayout(text_box, 1)
 
         self.setObjectName("root")
         self.setStyleSheet(self.STYLE)
 
-    def refresh(self, title, message, timeout_ms=5000):
+        # 自动消失用**同一个**计时器：refresh 时 start() 即「重排」。
+        # 旧实现每次 refresh 都 QTimer.singleShot 且从不取消前一个 ——
+        # 监控轮询 2s 一次，连续两次报警时第一次的计时到点会把第二次的弹窗
+        # 提前隐藏。监控场景里「没看见 = 没报警」，这是最不能接受的失败方式。
+        self._hide_timer = QTimer(self)
+        self._hide_timer.setSingleShot(True)
+        self._hide_timer.timeout.connect(self.hide)
+
+    def refresh(self, title, message, timeout_ms=6000):
         """更新文案、定位、强制置顶并安排自动消失（不新建窗口、无动画）。"""
         self._title_label.setText(title)
         self._msg_label.setText(message)
@@ -113,7 +137,8 @@ class _AlertPopup(QWidget):
             self.show()
         # 每次报警都推到最前：即便用户刚切换过窗口也不会被压在下面
         self.raise_()
-        QTimer.singleShot(max(1000, int(timeout_ms)), self.hide)
+        # 复用同一个计时器并 start()：自动消失按**本次**时长重排，不叠加
+        self._hide_timer.start(max(2500, int(timeout_ms)))
 
     def _place_top_center(self):
         """顶部水平居中：横幅式提示视线焦点在屏幕中央上方，比右上角更显眼。"""
