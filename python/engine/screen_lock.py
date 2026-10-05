@@ -53,3 +53,16 @@ def holder() -> str | None:
 
 def is_screen_tool(tool: str | None) -> bool:
     return tool in SCREEN_TOOLS
+
+
+def busy_detail(busy: "ScreenBusy") -> str:
+    """把「屏幕被占」翻成用户看得懂的一句话。
+
+    必须说出是谁占着 —— 只回一个状态码，用户只能自己去猜该停哪一个。
+    占用者可能不是实例（比如手动填入用的固定名字），查不到就退回原值。
+    """
+    from engine import db  # 延迟导入：screen_lock 在最底层，不该把 db 拖进依赖图
+
+    rows = db.query("SELECT name FROM instances WHERE id=?", (busy.holder_id,))
+    holder = rows[0]["name"] if rows else busy.holder_id
+    return f"屏幕正被「{holder}」占用：动键鼠的实例同一时刻只能跑一个，先停掉它或等它跑完"

@@ -60,7 +60,10 @@ def test_report_hit_records_the_event_and_writes_the_result_back():
     assert e["notified"] == {"desktop": "ok"}, "发没发出去要记在事件上，事件列表才能回答这件事"
 
     assert len(ch.sent) == 1
-    assert ch.sent[0].title == "差评关键词"
+    # 通知标题走 wording 的统一说法（与应用内横幅同源），不是调用方给的原文；
+    # 原文（"差评关键词"）仍留在事件的 detail 里，排查时能看到命中的具体是什么。
+    assert ch.sent[0].title == "图片监控命中"
+    assert "差评关键词" in ch.sent[0].detail
     assert ch.sent[0].level == "alert"
     assert ch.sent[0].instance_id == "I1"
 

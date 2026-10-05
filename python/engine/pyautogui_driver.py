@@ -71,6 +71,52 @@ class PyAutoGUIDriver:
     def click(self, x: int, y: int) -> None:
         self.pag.click(int(x), int(y))
 
+    # ── 扩充指令库用到的原语 ──
+
+    def click_button(self, x: int, y: int, button: str = "left", clicks: int = 1) -> None:
+        """左/右/中键点击，clicks=2 即双击。"""
+        self.pag.click(int(x), int(y), button=button, clicks=int(clicks), interval=0.05)
+
+    def move_to(self, x: int, y: int, duration_ms: int = 0) -> None:
+        """移动鼠标不点击。durationMs 给的是动画时长（0 = 瞬移）。"""
+        self.pag.moveTo(int(x), int(y), duration=max(0.0, duration_ms / 1000))
+
+    def scroll(self, amount: int) -> None:
+        """滚轮。正数向上翻、负数向下翻。"""
+        self.pag.scroll(int(amount))
+
+    def drag_to(self, x1: int, y1: int, x2: int, y2: int, duration_ms: int = 300) -> None:
+        """按住从 (x1,y1) 拖到 (x2,y2) 再松开。"""
+        self.pag.moveTo(int(x1), int(y1))
+        time.sleep(0.05)
+        self.pag.dragTo(int(x2), int(y2), duration=max(0.01, duration_ms / 1000), button="left")
+        self.pag.mouseUp()
+
+    def copy_to_clipboard(self, text: str) -> None:
+        pyperclip = _need("pyperclip", "pyperclip")
+        pyperclip.copy(text)
+
+    def paste_from_clipboard(self) -> None:
+        self.pag.hotkey("ctrl", "v")
+        time.sleep(0.05)
+
+    def read_clipboard(self) -> str:
+        pyperclip = _need("pyperclip", "pyperclip")
+        return str(pyperclip.paste() or "")
+
+    def screenshot_to(self, path: str) -> None:
+        p = Path(path)
+        p.parent.mkdir(parents=True, exist_ok=True)  # 目录不存在时截图会失败
+        self.pag.screenshot(str(p))
+
+    def get_screen_size(self) -> tuple[int, int]:
+        w, h = self.pag.size()
+        return int(w), int(h)
+
+    def cursor_position(self) -> tuple[int, int]:
+        pos = self.pag.position()
+        return int(pos[0]), int(pos[1])
+
     def locate(self, asset_id: str, threshold: float = 0.85, timeout_sec: float = 5.0):
         """在屏幕上找图并返回中心坐标；超时返回 None。
 

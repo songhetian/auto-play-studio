@@ -25,10 +25,13 @@ import sys
 import threading
 from typing import Callable
 
-from . import indexer, store
+from . import embed, indexer, store
 from .engine import SearchEngine
+from .fuse import rrf_fuse
 from .indexer import IndexReport
 from .paths import normalize_path
+from .semantic import SemanticIndex
+from .types import SearchResult
 
 #: 一次搜索最多返回几条结果（超出由前端提示「收窄一下」）
 MAX_RESULTS = 50
@@ -53,6 +56,9 @@ def _open_with_system(path: str) -> None:  # noqa: F811 —— 覆盖上面的�
 # ── 引擎单例 ──────────────────────────────────────────────────────────
 
 _engine: SearchEngine | None = None
+#: 语义索引单例。None 有两种含义：还没初始化，或本机没有可用模型 —— `semantic()`
+#: 每次都会重新探（`get_embedder` 内部有缓存，探盘很便宜）。
+_semantic: SemanticIndex | None = None
 _engine_lock = threading.Lock()
 
 
@@ -66,19 +72,40 @@ def engine() -> SearchEngine:
         return _engine
 
 
+def semantic() -> SemanticIndex | None:
+    """语义索引单例。没有可用 embedding 模型时返回 None（检索退回纯关键词）。
+
+    懒加载：第一次真正用到时才探模型、建 onnx 会话 —— 没装模型的人
+    不该为这份可选能力付启动时间。
+    """
+    global _semantic
+    with _engine_lock:
+        if _semantic is not None:
+            return _semantic
+        embedder = embed.get_embedder()
+        if embedder is None:
+            return None
+        index = SemanticIndex(embedder, store)
+        index.load()
+        _semantic = index
+        return _semantic
+
+
 def reset() -> None:
     """丢掉单例（测试用；也用于「设置页里换了数据目录」这类整机重置）。"""
-    global _engine, _runner
+    global _engine, _semantic, _runner
     with _engine_lock:
         _engine = None
+        _semantic = None
     _runner = None
 
 
 def reload() -> None:
     """从库里重建索引（文件夹或文件变动之后）。"""
-    global _engine
+    global _engine, _semantic
     with _engine_lock:
         _engine = SearchEngine(store.load_documents(), paragraph_store=store.SqliteParagraphStore())
+        _semantic = None  # 下次检索时按新库重建（向量可能刚被重算过）
 
 
 # ── 后台索引 ──────────────────────────────────────────────────────────
@@ -95,9 +122,13 @@ class IndexRunner:
         self,
         engine_getter: Callable[[], SearchEngine],
         reindex_fn: Callable[..., IndexReport] = indexer.reindex,
+        embeddings_getter: Callable[[], SemanticIndex | None] | None = None,
     ) -> None:
         self._engine_getter = engine_getter
         self._reindex_fn = reindex_fn
+        #: 只有注入它才会把语义索引传下去；不注入（单测的假 reindex_fn）
+        #: 时连 `embeddings=` 这个关键字都不会出现，老签名照样能用。
+        self._embeddings_getter = embeddings_getter
         self._lock = threading.Lock()
         self._thread: threading.Thread | None = None
         self._rerun_requested = False
@@ -125,7 +156,10 @@ class IndexRunner:
 
     def _run(self, folders: list[str]) -> None:
         while True:
-            report = self._reindex_fn(folders, self._engine_getter(), on_progress=self._on_progress)
+            kwargs: dict = {"on_progress": self._on_progress}
+            if self._embeddings_getter is not None:
+                kwargs["embeddings"] = self._embeddings_getter()
+            report = self._reindex_fn(folders, self._engine_getter(), **kwargs)
             with self._lock:
                 self._failed = list(report.failed)
                 if not self._rerun_requested:
@@ -157,13 +191,13 @@ _runner: IndexRunner | None = None
 def runner() -> IndexRunner:
     global _runner
     if _runner is None:
-        _runner = IndexRunner(engine_getter=engine)
+        _runner = IndexRunner(engine_getter=engine, embeddings_getter=semantic)
     return _runner
 
 
 def run_index_sync() -> IndexReport:
     """同步跑一轮（测试与脚本用）。"""
-    return indexer.reindex(store.folder_paths(), engine())
+    return indexer.reindex(store.folder_paths(), engine(), embeddings=semantic())
 
 
 # ── 对外动作 ──────────────────────────────────────────────────────────
@@ -191,7 +225,7 @@ def _folder_payload(row: dict) -> dict:
 
 def remove_folder(path: str) -> int:
     """注销文件夹：撤回它的文档与索引。"""
-    return indexer.remove_folder(path, engine())
+    return indexer.remove_folder(path, engine(), embeddings=semantic())
 
 
 def reindex_all() -> dict:
@@ -216,6 +250,9 @@ def status() -> dict:
             "current": snap["current"],
         },
         "failed": snap["failed"],
+        # 有没有语义那一路可用。前端拿它决定空结果时给不给「用一句话描述」的引导 ——
+        # 模型不在场还说「可以描述着搜」，是把用户往一个不存在的功能上引。
+        "semanticEnabled": semantic() is not None,
     }
 
 
@@ -233,24 +270,102 @@ def clear_history() -> None:
 
 
 def search(query: str, limit: int = MAX_RESULTS) -> dict:
-    """搜索并记历史。返回前端直接可用的形状（camelCase）。"""
+    """搜索并记历史。返回前端直接可用的形状（camelCase）。
+
+    两路召回 + RRF 融合：
+
+    - **关键词路**：现有倒排索引（BM25）。行为一字未改。
+    - **语义路**：段落向量余弦。没有模型 / 模型报错时这路为空，
+      整条路径的行为与加语义之前**完全一致**（名次、分数、条数都不变）。
+
+    融合只看名次（RRF，`Σ 1/(k+rank)`），两路量纲不同也不受影响。
+    关键词命中的结果**保留它原来的 BM25 分数**，语义命中用相似度当分数 ——
+    分数只作展示，排序以融合名次为准。
+    """
     query = (query or "").strip()
     if not query:
         return {"query": "", "count": 0, "results": []}
 
-    hits = engine().search(query)
-    store.add_history(query, len(hits))
-    capped = hits[: max(int(limit), 0)]
-    return {
-        "query": query,
-        "count": len(capped),
-        "results": [_result_payload(h) for h in capped],
-    }
+    eng = engine()
+    hits = eng.search(query)
+    keyword_rank = [h.document.id for h in hits]
+    keyword_hits = {h.document.id: h for h in hits}
+
+    semantic_best = _semantic_matches(query)
+    semantic_rank = list(semantic_best)  # dict 保序：按相似度降序构造
+
+    fused = rrf_fuse([keyword_rank, semantic_rank])
+    store.add_history(query, len(fused))
+
+    results: list[dict] = []
+    seen_paths: set[str] = set()
+    for doc_id, _fused_score in fused:
+        hit = keyword_hits.get(doc_id)
+        if hit is not None:
+            payload = _result_payload(hit, "both" if doc_id in semantic_best else "keyword")
+        else:
+            payload = _semantic_payload(eng, doc_id, semantic_best[doc_id])
+        if payload is None:
+            continue
+        # 语义是按 doc_id 召回的，同一份文件的多个分片（多个 doc）会各占一个名次；
+        # 关键词路已经在引擎里按 path 去过重，这里把两路合并后的重复路径也收掉。
+        key = normalize_path(payload["path"])
+        if key:
+            if key in seen_paths:
+                continue
+            seen_paths.add(key)
+        results.append(payload)
+
+    results = results[: max(int(limit), 0)]
+    return {"query": query, "count": len(results), "results": results}
 
 
-def _result_payload(hit) -> dict:
-    snippets = hit.matched_paragraphs[:MAX_SNIPPETS]
-    doc = hit.document
+def _semantic_matches(query: str) -> dict[int, tuple[float, int]]:
+    """语义路的文档级命中：`{doc_id: (相似度, 最相关段落序号)}`，按相似度降序。
+
+    没有模型、模型报错、维度对不上 —— 一律返回空字典，只走关键词路。
+    语义是增强而非必需，绝不能因为它把关键词的结果也拖没。
+    """
+    index = semantic()
+    if index is None:
+        return {}
+    try:
+        matches = index.search(query)
+    except Exception:
+        return {}
+    return {doc_id: (score, idx) for doc_id, score, idx in matches}
+
+
+def _result_payload(hit, matched_by: str) -> dict:
+    return _payload(
+        hit.document,
+        score=hit.score,
+        match_mode=hit.match_mode,
+        match_count=len(hit.matched_paragraphs),
+        snippets=hit.matched_paragraphs[:MAX_SNIPPETS],
+        matched_by=matched_by,
+    )
+
+
+def _semantic_payload(eng: SearchEngine, doc_id: int, best: tuple[float, int]) -> dict | None:
+    """语义独有（关键词没召回）的结果：回表取文档与那段原文，补造成同一种形状。"""
+    doc = eng.document(doc_id)
+    if doc is None:
+        return None
+    score, idx = best
+    paragraphs = eng.paragraphs(doc_id)
+    snippet = [paragraphs[idx]] if 0 <= idx < len(paragraphs) else []
+    return _payload(
+        doc,
+        score=score,
+        match_mode="and",
+        match_count=len(snippet),
+        snippets=snippet,
+        matched_by="semantic",
+    )
+
+
+def _payload(doc, score: float, match_mode: str, match_count: int, snippets, matched_by: str) -> dict:
     return {
         "path": doc.path,
         "fileName": doc.file_name,
@@ -258,10 +373,12 @@ def _result_payload(hit) -> dict:
         "size": doc.size,
         "mtime": doc.mtime,
         "truncated": doc.truncated,
-        "score": hit.score,
-        "matchMode": hit.match_mode,
-        "matchCount": len(hit.matched_paragraphs),
+        "score": score,
+        "matchMode": match_mode,
+        "matchCount": match_count,
         "snippets": [{"line": p.line, "text": p.text} for p in snippets],
+        #: 'keyword' | 'semantic' | 'both' —— 前端据此标注「怎么找到的」
+        "matchedBy": matched_by,
     }
 
 

@@ -81,6 +81,9 @@ def upsert_document(raw: RawFile, paragraphs: list[Paragraph]) -> int:
                 (raw.name, file_type, raw.size, raw.mtime, int(raw.truncated), doc_id),
             )
             c.execute("DELETE FROM kb_para WHERE doc_id=?", (doc_id,))
+            # 段落换了，向量也必须跟着作废：留下旧向量，改过的段落会继续被语义命中。
+            # 新向量由索引器随后写入（见 indexer.reindex）。
+            c.execute("DELETE FROM kb_embed WHERE doc_id=?", (doc_id,))
         else:
             cur = c.execute(
                 "INSERT INTO kb_doc(path, file_name, file_type, size, mtime, truncated) VALUES (?,?,?,?,?,?)",
@@ -167,6 +170,7 @@ def delete_documents(paths: list[str]) -> int:
             if row is None:
                 continue
             c.execute("DELETE FROM kb_para WHERE doc_id=?", (row["id"],))
+            c.execute("DELETE FROM kb_embed WHERE doc_id=?", (row["id"],))
             c.execute("DELETE FROM kb_doc WHERE id=?", (row["id"],))
             removed += 1
     return removed
@@ -194,6 +198,47 @@ class SqliteParagraphStore:
 
     def has_paragraphs(self, doc_id: int) -> bool:
         return bool(db.query("SELECT 1 FROM kb_para WHERE doc_id=? LIMIT 1", (doc_id,)))
+
+
+# ── 段落向量（语义检索） ──────────────────────────────────────────────
+
+
+def upsert_embeddings(doc_id: int, model: str, vectors: list[bytes]) -> None:
+    """覆盖一份文档的段落向量。`vectors[i]` = 第 i 段的 float32 BLOB（已归一化）。
+
+    整份覆盖而不是逐行 upsert：段落数变了（增删段）时，逐行更新会留下
+    多出来的旧行，那一段会继续被语义命中却指不到任何正文。
+    """
+    with db.write() as c:
+        c.execute("DELETE FROM kb_embed WHERE doc_id=?", (int(doc_id),))
+        if vectors:
+            c.executemany(
+                "INSERT INTO kb_embed(doc_id, idx, dim, model, vec) VALUES (?,?,?,?,?)",
+                [(int(doc_id), i, len(blob) // 4, model, blob) for i, blob in enumerate(vectors)],
+            )
+
+
+def delete_embeddings(doc_id: int) -> None:
+    with db.write() as c:
+        c.execute("DELETE FROM kb_embed WHERE doc_id=?", (int(doc_id),))
+
+
+def load_embeddings(model: str) -> list[tuple[int, int, int, bytes]]:
+    """全部段落向量，**只取 `model` 这一个模型算的**（换模型后旧向量不能混用）。"""
+    rows = db.query(
+        "SELECT doc_id, idx, dim, vec FROM kb_embed WHERE model=? ORDER BY doc_id, idx",
+        (model,),
+    )
+    return [(int(r["doc_id"]), int(r["idx"]), int(r["dim"]), r["vec"]) for r in rows]
+
+
+def embedding_count(model: str = "") -> int:
+    """已有的向量行数。传 model 时只数那个模型的（用于判断「要不要重建语义索引」）。"""
+    if model:
+        rows = db.query("SELECT COUNT(*) AS n FROM kb_embed WHERE model=?", (model,))
+    else:
+        rows = db.query("SELECT COUNT(*) AS n FROM kb_embed")
+    return int(rows[0]["n"]) if rows else 0
 
 
 # ── 搜索历史 ──────────────────────────────────────────────────────────

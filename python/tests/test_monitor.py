@@ -239,6 +239,21 @@ def test_build_monitor_invokes_on_hit_sink():
     assert seen and seen[0][0] == "a"
 
 
+def test_build_monitor_把实例ID传进快照目录名():
+    """命中截图按实例分目录（hits/<实例id>/），id 得从 runner 一路传进来。
+
+    曾经 build_monitor 读的是 cfg["id"] —— 实例 id 存在 DB 里、从不写进 config，
+    于是取到空串，所有实例的截图全堆进 hits/unknown/，反而分不出是哪台。
+    """
+    eng = build_monitor(
+        {"region": "full", "rules": []},
+        grabber=FakeGrabber(None),
+        ref_loader=FakeRefLoader({}),
+        instance_id="I9",
+    )
+    assert eng._instance_id == "I9"
+
+
 # ── Runner 分支：monitor 工具能跑起来，命中落日志 + 进度 ──
 class FakeMonitorEngine:
     """注入给 runner 的假监控内核：首轮报一次命中，之后无。"""
@@ -248,12 +263,16 @@ class FakeMonitorEngine:
         self.zones = [{"id": h[0]} for h in self._hits] or [{"id": "x"}]
         self.poll_interval = 0.02
         self._emitted = False
+        self.shutdown_called = False
 
     def poll_once(self) -> list[tuple[str, float, list[int] | None]]:
         if not self._emitted:
             self._emitted = True
             return self._hits
         return []
+
+    def shutdown(self) -> None:
+        self.shutdown_called = True
 
 
 def _monitor_cfg(rules, region="full"):
@@ -289,6 +308,24 @@ def test_runner_monitor_branch_runs_and_logs_hit(make_instance, wait_status):
     inst = db.query("SELECT progress_done, progress_total FROM instances WHERE id=?", (iid,))[0]
     assert inst["progress_total"] == 1
     assert inst["progress_done"] == 1
+
+
+def test_监控停止后释放抓屏句柄(make_instance, wait_status):
+    """监控退出时必须关掉抓屏句柄（mss 的 GDI 资源）。
+
+    之前 MonitorEngine.shutdown 从无调用点，每次启停都新建一个 MssGrabber，
+    句柄一路泄漏。
+    """
+    iid = make_instance("monitor", _monitor_cfg([{"assetId": "img_a", "threshold": 0.85}]))
+    engine = FakeMonitorEngine([("img_a", 0.95, [150, 100, 80, 60])])
+    runner = make_runner(iid, monitor_engine=engine)
+
+    assert runner.start()
+    assert wait_status(iid, {"running"}, 5) == "running"
+    runner.stop()
+    assert wait_status(iid, {"idle"}, 5) == "idle"
+
+    assert engine.shutdown_called, "监控退出时必须释放抓屏句柄"
 
 
 def test_repeated_start_stop_always_ends_back_at_idle(make_instance, wait_status):
@@ -332,8 +369,11 @@ def test_monitor_hit_reaches_the_notification_channel(make_instance, wait_status
     assert events, "命中应写入命中事件"
 
     assert events[0]["notified"] == {"desktop": "ok"}, "默认配置下命中要走桌面通知"
-    assert events[0]["title"] == "差评弹窗", "通知标题用素材名，不是素材 id"
+    # 事件表留**原始**标题（素材名），排查时能看出命中的是哪个素材；
+    # 通知本身走 wording 的统一说法（与应用内横幅同源）。
+    assert events[0]["title"] == "差评弹窗", "事件里存原始素材名，不是素材 id"
 
     items, _cursor = outbox.drain()
-    assert items[-1]["title"] == "差评弹窗", "通知要真的进了待发队列，等着被弹出去"
+    assert items[-1]["title"] == "图片监控命中", "通知标题用统一说法，不把素材名当标题"
+    assert "差评弹窗" in items[-1]["detail"], "素材名放进正文，用户能知道命中了什么"
     outbox.reset()

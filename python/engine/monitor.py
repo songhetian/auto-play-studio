@@ -14,10 +14,12 @@ from __future__ import annotations
 import os
 import sys
 import threading
-from typing import Callable, Protocol, runtime_checkable
+from typing import Callable, NamedTuple, Protocol, runtime_checkable
 
 import cv2
 import numpy as np
+
+from . import snapshots
 
 # 复用 notic 的模板匹配算法（仓库根 notic/app/core/screen_matcher.py）。
 _REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -43,10 +45,25 @@ class ReferenceLoader(Protocol):
         ...
 
 
-#: 命中事件：(asset_id, 相似度 0~1, 命中的物理像素矩形 [x,y,w,h] 或 None)
-Hit = tuple[str, float, "list[int] | None"]
+class Hit(NamedTuple):
+    """一次命中。
+
+    **位置解包必须仍是 3 个值**：runner 与测试都写着
+    `for asset_id, sim, rect in hits`，扩到 4 会让所有旧解包点一起崩
+    （"too many values to unpack"）。所以快照不塞进这个元组 ——
+    它走 `SnapshotSink` 单独一条通道，元组保持原样。
+    """
+
+    asset_id: str
+    similarity: float
+    rect: "list[int] | None"
+
+
 #: 命中回调：runner 用来落日志 / 写运行详情
 HitSink = Callable[[str, float, "list[int] | None"], None]
+#: 快照回调：(asset_id, 快照相对路径或空串)。与 HitSink 分开是为了不破坏
+#: Hit 的 3 元组解包 —— 那是 monitor 对外的主要契约。
+SnapshotSink = Callable[[str, str], None]
 
 
 def _match(ref: np.ndarray, frame: np.ndarray, search_rect) -> tuple[float, "list[int] | None"]:
@@ -122,16 +139,21 @@ class MonitorEngine:
         grabber: Grabber,
         ref_loader: ReferenceLoader,
         on_hit: HitSink | None = None,
+        on_snapshot: SnapshotSink | None = None,
         on_log: Callable[[str], None] | None = None,
         poll_interval_ms: int = 500,
+        instance_id: str = "",
     ) -> None:
         self._cfg = cfg
         self._grabber = grabber
         self._ref_loader = ref_loader
         self._on_hit = on_hit
+        self._on_snapshot = on_snapshot
         self._on_log = on_log or (lambda m: None)
         self._poll_interval = max(0.1, poll_interval_ms / 1000.0)
         self._zones = build_zones(cfg)
+        # 快照按实例分目录：一眼看出这张图是哪台实例拍的，排查时不用查表
+        self._instance_id = instance_id or str(cfg.get("id") or cfg.get("instanceId") or "")
         self._active_hits: set[str] = set()  # 已报过的 zone（画面持续存在不再重复报）
         self._lock = threading.Lock()
 
@@ -142,6 +164,16 @@ class MonitorEngine:
     @property
     def poll_interval(self) -> float:
         return self._poll_interval
+
+    def shutdown(self) -> None:
+        """释放抓屏资源。
+
+        抓屏器实现（如 MssGrabber）持有可关句柄（mss 的 GDI/设备上下文），
+        停止后必须关；没有 shutdown 的注入实现（测试假件）跳过即可。
+        """
+        close = getattr(self._grabber, "shutdown", None)
+        if callable(close):
+            close()
 
     def reload(self, cfg: dict | None = None) -> None:
         """配置热更新：增删 rule 后重建 zone 列表，清空去重状态。"""
@@ -185,11 +217,17 @@ class MonitorEngine:
             loc = ""
             if best_rect is not None:
                 loc = f"位置({best_rect[0]},{best_rect[1]})"
+            # 存一张命中瞬间的截图：只有 rect 的话，用户拿到一个坐标也不知道
+            # 屏幕上当时是什么，判断"真命中还是误报"只能跑到现场复现。
+            # 存图失败（无 frame / 写盘失败）返回空串，命中照报 —— 不卡主链路。
+            snapshot = snapshots.save_hit_snapshot(frame, best_rect, instance_id=self._instance_id) or ""
+            if snapshot and self._on_snapshot is not None:
+                self._on_snapshot(zid, snapshot)
             # 命中位置/分数交给 on_hit 实时消费者（声音/UI）；落日志由 runner 统一处理，
             # 避免引擎与 runner 双重写日志。
             if self._on_hit is not None:
                 self._on_hit(zid, sim, best_rect)
-            hits.append((zid, sim, best_rect))
+            hits.append(Hit(zid, sim, best_rect))
         with self._lock:
             self._active_hits = active
         return hits
@@ -247,35 +285,57 @@ class AssetReferenceLoader:
 def build_monitor(
     cfg: dict,
     on_hit: HitSink | None = None,
+    on_snapshot: SnapshotSink | None = None,
     on_log: Callable[[str], None] | None = None,
     grabber: Grabber | None = None,
     ref_loader: ReferenceLoader | None = None,
+    instance_id: str = "",
 ) -> MonitorEngine:
-    """构造真实监控内核（抓屏/参考图用默认实现，可注入以覆盖）。"""
+    """构造真实监控内核（抓屏/参考图用默认实现，可注入以覆盖）。
+
+    ``instance_id`` 用于命中截图的分实例目录（``hits/<实例id>/``）。实例 id 存在
+    DB 的 ``instances.id`` 里、**从不写进 config**，所以要由 runner 显式传进来 ——
+    否则取到空串，所有实例的截图都堆进 ``hits/unknown/``。
+    """
     return MonitorEngine(
         cfg,
         grabber or MssGrabber(),
         ref_loader or AssetReferenceLoader(),
         on_hit=on_hit,
+        on_snapshot=on_snapshot,
         on_log=on_log,
         poll_interval_ms=int(cfg.get("pollIntervalMs", 500)),
+        instance_id=instance_id or str(cfg.get("id") or ""),
     )
 
 
 def make_alert(cfg: dict) -> "HitSink | None":
     """构造命中声音告警回调（设备层，仅 Windows 真机有效；失败静默降级）。
 
-    复用 notic 的 ``sound.play``（winmm MCI + 系统 TTS）。非 Windows 或依赖缺失时
-    导入即失败，这里吞掉异常，绝不让声音影响监控主流程。按约定声音不进自动化测试。
+    **每个实例用自己的声音**：静音 / 语音 / 铃声 / 自定义音频，由
+    ``alert_sound.resolve_alert_sound`` 决定（那段是纯逻辑，有单测）。
+    本函数只负责照做 —— 真正的播放复用 notic 的 ``sound.play``
+    （winmm MCI + 系统 TTS）。非 Windows 或依赖缺失时导入即失败，
+    吞掉异常，绝不让声音影响监控主流程。按约定声音不进自动化测试。
     """
-    if not cfg.get("alertSound", True):
+    from .alert_sound import resolve_alert_sound
+
+    plan = resolve_alert_sound(cfg)
+    if plan["mode"] == "silent":
+        # 明确选了静音：这是用户的决定，不是异常，静默返回即可
         return None
-    text = cfg.get("alertText") or "出现目标图片 请查看"
 
     def _alert(_asset_id: str, _sim: float, _rect) -> None:
         try:
             from app.core.sound import play
-            play(text=text, repeat=1)
+            if plan["mode"] == "file":
+                play(sound_file=plan["path"], repeat=1)
+            elif plan["mode"] == "voice":
+                play(text=plan["text"], repeat=1)
+            # invalid：配置有问题，播默认提示音让用户察觉到"这里不对"，
+            # 完全静默会让人以为监控本身坏了
+            else:
+                play(text="告警声音配置有误", repeat=1)
         except Exception:
             pass
 

@@ -247,11 +247,11 @@ def save_plan(iid: str, body: PlanSaveBody):
         raise HTTPException(400, "请先上传 A 表（主表）")
 
     primary, others = _current_tables(cmp_cfg)
-    snapshot = config_io.dump_config(
+    plan = config_io.Plan.from_tables(
         primary, cmp_cfg.get("primaryFields", []), others, cmp_cfg.get("tolerance", 0.0)
     )
     # 包一层 cmp.plan：方案与实例配置同构，将来「新建实例套用方案」才不会把字段塞错地方
-    pid = plans.create_plan("cmp", body.name, {"cmp": {"plan": snapshot}})
+    pid = plans.create_plan("cmp", body.name, {"cmp": {"plan": plan.to_dict()}})
     db.log(iid, f"方案已保存：{body.name}")
     return {"id": pid, "name": body.name}
 
@@ -260,7 +260,7 @@ def save_plan(iid: str, body: PlanSaveBody):
 def apply_plan(iid: str, body: PlanApplyBody):
     """把方案里的字段角色、列映射、容差套回当前实例。
 
-    按【主表名】匹配（config_io.apply_config）：换了一张主表还硬套，
+    按【主表名】匹配（config_io.Plan.apply_to）：换了一张主表还硬套，
     容差这类业务口径就会张冠李戴，所以这时整套方案都不生效。
     """
     from .. import db, plans
@@ -278,12 +278,12 @@ def apply_plan(iid: str, body: PlanApplyBody):
         raise HTTPException(400, "请先上传 A 表（主表）")
 
     primary, others = _current_tables(cmp_cfg)
-    fields, new_others, tolerance = config_io.apply_config(
-        snapshot, primary, cmp_cfg.get("primaryFields", []), others, cmp_cfg.get("tolerance", 0.0)
+    applied = config_io.Plan.from_dict(snapshot).apply_to(
+        primary, cmp_cfg.get("primaryFields", []), others, cmp_cfg.get("tolerance", 0.0)
     )
-    cmp_cfg["primaryFields"] = fields
-    cmp_cfg["maps"] = {o["table"]["name"]: o["maps"] for o in new_others}
-    cmp_cfg["tolerance"] = tolerance
+    cmp_cfg["primaryFields"] = applied.primary_fields
+    cmp_cfg["maps"] = {o["table"]["name"]: o["maps"] for o in applied.others}
+    cmp_cfg["tolerance"] = applied.tolerance
     db.save_config(iid, cfg)
     db.log(iid, f"已载入方案：{found['name']}")
-    return {"ok": True, "name": found["name"], "tolerance": tolerance}
+    return {"ok": True, "name": found["name"], "tolerance": applied.tolerance}

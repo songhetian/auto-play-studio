@@ -153,6 +153,18 @@ class SearchEngine:
     def document_count(self) -> int:
         return len(self._documents)
 
+    def document(self, doc_id: int) -> IndexedDocument | None:
+        """按 id 取文档。
+
+        语义检索只给得出 doc_id（向量表里没有文件名），补造结果时要用它回表；
+        倒排索引本身用不到，所以以前没有这个方法。
+        """
+        return self._doc_map.get(doc_id)
+
+    def paragraphs(self, doc_id: int) -> list[Paragraph]:
+        """按 id 取段落（懒加载存储里的原文）。"""
+        return self._paragraph_store.get_paragraphs(doc_id)
+
     @property
     def file_count(self) -> int:
         """唯一文件数。同一份文件被切成多片（多个 doc）时只算一个。"""

@@ -27,7 +27,7 @@ def _fresh_kb():
     from engine import db
 
     with db.write() as c:
-        for t in ("kb_folder", "kb_doc", "kb_para", "kb_history"):
+        for t in ("kb_folder", "kb_doc", "kb_para", "kb_history", "kb_embed"):
             c.execute(f"DELETE FROM {t}")
     service.reset()
     yield
@@ -78,7 +78,7 @@ def test_status_field_names_match_the_frontend(client):
     """字段名是契约。会一起改就一起改，别一边改一边留。"""
     body = client.get("/api/kb/status").json()
 
-    assert set(body) == {"docCount", "fileCount", "folders", "indexing", "failed"}
+    assert set(body) == {"docCount", "fileCount", "folders", "indexing", "failed", "semanticEnabled"}
     assert set(body["indexing"]) == {"running", "done", "total", "current"}
 
 
@@ -140,6 +140,7 @@ def test_search_returns_file_name_and_matched_snippets(client, kb_folder):
         "matchMode",
         "matchCount",
         "snippets",
+        "matchedBy",
     }
     assert hit["fileName"] == "退款政策.md"
     assert hit["fileType"] == "md"
@@ -203,6 +204,89 @@ def test_search_result_snippets_are_capped_but_counted(tmp_path, client):
 
     assert hit["matchCount"] == 20
     assert len(hit["snippets"]) == service.MAX_SNIPPETS
+
+
+# ── 混合检索：关键词 + 语义，RRF 融合 ─────────────────────────────────
+
+
+@pytest.fixture
+def semantic_kb(tmp_path, monkeypatch):
+    """一个装了假语义索引的知识库（不加载真模型）。
+
+    直接把 `_engine` / `_semantic` 两个单例塞进服务层，绕开真模型探盘 ——
+    这样融合逻辑（名次、matchedBy、回表补片段）在没有几十 MB 模型时也能测。
+    """
+    from engine.kb.engine import SearchEngine
+    from engine.kb.indexer import reindex
+    from engine.kb.semantic import SemanticIndex
+    from tests.test_kb_semantic import FakeEmbedder
+
+    root = tmp_path / "知识库"
+    root.mkdir()
+    (root / "退款时效说明.md").write_text(
+        "退款时效说明：我们会在 24 小时内处理，请先安抚客户", encoding="utf-8"
+    )
+    (root / "发票抬头.md").write_text("发票抬头与税率填写说明", encoding="utf-8")
+
+    eng = SearchEngine([], paragraph_store=store.SqliteParagraphStore())
+    idx = SemanticIndex(FakeEmbedder(), store)
+    reindex([str(root)], eng, embeddings=idx)
+
+    monkeypatch.setattr(service, "_engine", eng)
+    monkeypatch.setattr(service, "_semantic", idx)
+    return root
+
+
+def test_semantic_path_finds_a_document_with_no_literal_overlap(semantic_kb):
+    """核心诉求：问句和文档标题字面不重合，也要能被语义路捞出来。
+
+    字面检索对「客户嫌退款慢怎么回复」一个词都命中不了；
+    语义路（假 embedder 的退款轴）把它捞回来，并标成 semantic。
+    """
+    body = service.search("客户嫌退款慢怎么回复")
+
+    assert body["count"] == 1
+    hit = body["results"][0]
+    assert hit["fileName"] == "退款时效说明.md"
+    assert hit["matchedBy"] == "semantic"
+    assert hit["snippets"][0]["text"].startswith("退款时效说明")
+
+
+def test_a_hit_both_lists_rank_is_marked_both(semantic_kb):
+    body = service.search("退款时效")
+
+    hit = next(r for r in body["results"] if r["fileName"] == "退款时效说明.md")
+    assert hit["matchedBy"] == "both"
+
+
+def test_keyword_only_hit_is_marked_keyword(semantic_kb):
+    """语义路开着，但这条只有关键词命中时，标注仍是 keyword。
+
+    「备注」不在假 embedder 的任何语义轴上 → 查询向量为零 → 语义路无命中；
+    关键词路照常捞出这份文件。
+    """
+    from engine.kb.indexer import reindex
+
+    (semantic_kb / "备注.md").write_text("内部备注：不走语义", encoding="utf-8")
+    reindex([str(semantic_kb)], service.engine(), embeddings=service.semantic())
+
+    body = service.search("内部备注")
+
+    hit = next(r for r in body["results"] if r["fileName"] == "备注.md")
+    assert hit["matchedBy"] == "keyword"
+
+
+def test_a_semantic_failure_does_not_take_down_the_keyword_results(monkeypatch, semantic_kb):
+    """语义是增强，不是必需：它挂了，关键词结果必须照样出来。"""
+    def boom(query: str):
+        raise RuntimeError("模型炸了")
+
+    monkeypatch.setattr(service.semantic(), "search", boom)
+
+    body = service.search("退款时效说明")
+
+    assert body["count"] >= 1
+    assert all(r["matchedBy"] == "keyword" for r in body["results"])
 
 
 # ── 下线文件夹 ────────────────────────────────────────────────────────

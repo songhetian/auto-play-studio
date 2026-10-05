@@ -31,7 +31,7 @@ import pathlib
 from typing import Callable
 
 from . import extract, store
-from .chunk import chunk_text
+from .chunk import Paragraph, chunk_text
 from .paths import normalize_path
 
 #: 跳过这些前缀的文件名（Office 锁文件、隐藏文件、编辑器临时文件）
@@ -52,6 +52,9 @@ class IndexReport:
     skipped_unchanged: int = 0
     dropped: int = 0
     failed: list[str] = dataclasses.field(default_factory=list)
+    #: 语义向量写入失败的份数。只记账、不打断 —— 关键词索引已经成，
+    #: 一个可选能力（embedding）不该把整轮索引拖垮。
+    embed_failed: int = 0
 
 
 def _should_skip(name: str) -> bool:
@@ -83,11 +86,15 @@ def reindex(
     folders: list[str],
     engine,
     on_progress: ProgressFn | None = None,
+    embeddings=None,
 ) -> IndexReport:
     """扫描并索引这些文件夹（增量），核对哪些文件已经不在磁盘上。
 
     `engine` 是 `SearchEngine`；这里只按它的 `remove_document` / `add_document`
     两个方法用它（测试里可以塞假实现）。
+
+    `embeddings` 是可选语义索引（`semantic.SemanticIndex`），有它才写向量。
+    没有（模型缺失）时整条链路与加语义之前一字不差。
     """
     report = IndexReport()
     files = scan_files(folders)
@@ -129,6 +136,7 @@ def reindex(
         if doc is not None:
             engine.add_document(doc)
             report.indexed += 1
+            _embed_document(embeddings, doc.id, paragraphs, report)
 
         if on_progress:
             on_progress(done, total, path.name)
@@ -140,14 +148,33 @@ def reindex(
         meta = store.document_meta(stale)
         if meta is None:
             continue
-        engine.remove_document(int(meta["id"]))
+        doc_id = int(meta["id"])
+        engine.remove_document(doc_id)
+        # 先让内存索引把这行撤掉（也顺手删库），再删文档；
+        # store.delete_documents 也会删 kb_embed，重复删无害。
+        if embeddings is not None:
+            embeddings.drop_document(doc_id)
         store.delete_documents([stale])
         report.dropped += 1
 
     return report
 
 
-def remove_folder(folder: str, engine) -> int:
+def _embed_document(embeddings, doc_id: int, paragraphs: list[Paragraph], report: IndexReport) -> None:
+    """给一份文档写语义向量。失败只记账、不中断整轮索引。
+
+    embedding 是**可选**能力：模型坏了、内存不够，都不该让「关键词检索能用」
+    这件事一起没了。失败的份数记在 `report.embed_failed` 里，不抛。
+    """
+    if embeddings is None:
+        return
+    try:
+        embeddings.index_document(doc_id, paragraphs)
+    except Exception:
+        report.embed_failed += 1
+
+
+def remove_folder(folder: str, engine, embeddings=None) -> int:
     """注销一个文件夹：撤索引 → 删数据 → 删登记，返回下线的文档数。
 
     顺序不能反：`remove_document` 要读该文档的段落才能把 gram 撤干净，
@@ -158,7 +185,10 @@ def remove_folder(folder: str, engine) -> int:
     for path in paths:
         meta = store.document_meta(path)
         if meta is not None:
-            engine.remove_document(int(meta["id"]))
+            doc_id = int(meta["id"])
+            engine.remove_document(doc_id)
+            if embeddings is not None:
+                embeddings.drop_document(doc_id)
     dropped = store.delete_documents(paths)
     store.remove_folder_record(key)
     return dropped

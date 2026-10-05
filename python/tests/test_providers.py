@@ -15,7 +15,7 @@ from engine.providers import (
     WebAutomationProvider,
     build_provider,
     detect_captcha,
-    query_many,
+    query_numbers,
 )
 
 
@@ -68,8 +68,8 @@ def test_query_result_is_cached(ref_xlsx, xlsx_factory):
     assert ExcelMatchProvider(empty, "物流单号", "物流状态").query("SF1234567890").status == "已签收"
 
 
-def test_query_many_keeps_input_order(ref_xlsx):
-    out = query_many(excel_provider(ref_xlsx), ["YT9876543210", "SF1234567890", "UNKNOWN"])
+def test_query_numbers_keeps_input_order(ref_xlsx):
+    out = query_numbers(excel_provider(ref_xlsx), ["YT9876543210", "SF1234567890", "UNKNOWN"])
 
     assert [o["no"] for o in out] == ["YT9876543210", "SF1234567890", "UNKNOWN"]
     assert out[0]["company"] == "圆通速递"

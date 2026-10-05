@@ -21,6 +21,9 @@ if str(PY_ROOT) not in sys.path:
 
 _DB = PY_ROOT / "test_autoplay.db"
 os.environ["AUTOPLAY_DB"] = str(_DB)
+# 语义检索默认关掉：既有用例断言的是纯关键词行为，本机一旦装了模型，
+# 真实 embedding 会改变结果与耗时。想单独验证语义的用例自行复位这个变量。
+os.environ["AUTOPLAY_KB_DISABLE_SEMANTIC"] = "1"
 # 图像素材写进临时目录，别往仓库里丢文件
 _ASSETS = tempfile.mkdtemp(prefix="autoplay_assets_")
 os.environ["AUTOPLAY_ASSETS_DIR"] = _ASSETS
@@ -33,7 +36,7 @@ def _fresh_db():
     """固定一个测试库，每会话开始时清空表（不删文件，避免每次运行都多出一个 db）。"""
     with db.write() as c:
         # settings 是全局一行（通知配置），漏了它上一个文件留下的值会污染后面所有文件
-        for t in ("instances", "runs", "rows", "logs", "waybill_cache", "image_assets", "hit_events", "settings", "plans"):
+        for t in ("instances", "runs", "rows", "logs", "waybill_cache", "image_assets", "hit_events", "violation_events", "settings", "plans"):
             c.execute(f"DELETE FROM {t}")
     yield
 
@@ -112,6 +115,23 @@ def client():
 
     with TestClient(app) as c:
         yield c
+
+
+@pytest.fixture
+def phrase_client(client):
+    """话术库专用的 client：每个用例前清空话术表。
+
+    话术表是「用户数据」而不是「运行状态」，不像 instances 那样每个用例都新建实例、
+    断言只看自己那一条。列表类断言（排序、分类、搜索）会被上一个用例留下的行影响，
+    所以这里显式清干净，让每个用例只看到自己的数据。
+    """
+    from engine import db
+
+    with db.write() as c:
+        c.execute("DELETE FROM phrase")
+    yield client
+    with db.write() as c:
+        c.execute("DELETE FROM phrase")
 
 
 # ── Excel 对比（compare）用的夹具 ──────────────────────────────

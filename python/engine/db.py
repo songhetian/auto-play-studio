@@ -102,8 +102,14 @@ CREATE TABLE IF NOT EXISTS hit_events (
     detail      TEXT NOT NULL DEFAULT '',
     similarity  REAL,
     rect        TEXT,                           -- JSON [x,y,w,h] 或 NULL
+    snapshot    TEXT NOT NULL DEFAULT '',      -- 命中瞬间的截图（相对素材库根目录），空串=没存成
     notified    TEXT,                           -- JSON：逐通道发送结果 {"desktop":"ok"}
     is_read     INTEGER NOT NULL DEFAULT 0,     -- 已读标记（托盘角标 / 事件列表页）
+    -- 处置状态：pending=待人工确认（默认）/ acknowledged=已确认（闭环了）。
+    -- 「未确认超时」不落库：它是 pending 且超过时限**推算**出来的看板状态，
+    -- 落库要靠定时任务扫，而这条信息随时钟走，存下来只会过期。
+    disposition TEXT NOT NULL DEFAULT 'pending',
+    ack_at      TEXT,                           -- 确认时刻（localtime），NULL = 从没确认过
     ts          TEXT NOT NULL DEFAULT (datetime('now','localtime'))
 );
 CREATE INDEX IF NOT EXISTS idx_hit_events_instance ON hit_events(instance_id, id);
@@ -151,12 +157,82 @@ CREATE TABLE IF NOT EXISTS kb_para (
     PRIMARY KEY (doc_id, idx)
 );
 
+-- 段落向量（语义检索用）：一行 = 一个段落的向量。
+-- vec 是 **L2 归一化后**的 float32 小端字节（见 engine/kb/semantic.py）——
+-- 归一化放在写入时，检索时余弦就退化成点积，省掉每次查询的 N 次开方。
+-- model 记模型名：换了模型，向量所在的空间就变了，旧向量必须整体重算；
+-- 混着用不会报错，只会让排序悄悄变差，所以读的时候按 model 过滤。
+CREATE TABLE IF NOT EXISTS kb_embed (
+    doc_id INTEGER NOT NULL,
+    idx    INTEGER NOT NULL,
+    dim    INTEGER NOT NULL,
+    model  TEXT NOT NULL DEFAULT '',
+    vec    BLOB NOT NULL,
+    PRIMARY KEY (doc_id, idx)
+);
+
 CREATE TABLE IF NOT EXISTS kb_history (
     id           INTEGER PRIMARY KEY AUTOINCREMENT,
     query        TEXT NOT NULL UNIQUE,
     result_count INTEGER NOT NULL DEFAULT 0,
     used_at      TEXT NOT NULL DEFAULT (datetime('now','localtime'))
 );
+
+-- 话术库：客服常用回复模板，按分类收纳，支持 {变量} 占位符
+CREATE TABLE IF NOT EXISTS phrase (
+    id        INTEGER PRIMARY KEY AUTOINCREMENT,
+    title     TEXT NOT NULL,
+    body      TEXT NOT NULL,
+    category  TEXT NOT NULL DEFAULT '',
+    -- 使用次数：常用的排前面，省得在一堆话术里翻
+    used_count INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL DEFAULT (datetime('now','localtime')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now','localtime'))
+);
+
+-- 同一标题只留一条：用户改话术是"覆盖"，不是"越积越多"
+CREATE UNIQUE INDEX IF NOT EXISTS idx_phrase_title ON phrase(title);
+
+-- 敏感词库（见 engine/sensitive_words/）：违禁词规则，是「敏感词监控」工具的数据源。
+-- 与 image_assets 分开：那是图片模板，这是文本规则，两者的匹配逻辑完全不同
+-- （图片走 OpenCV 模板匹配，敏感词走子串 + 拼音首字母）。
+CREATE TABLE IF NOT EXISTS sensitive_word (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    word       TEXT NOT NULL,
+    -- 拼音首字母键（tkzc → 退款政策）：客服只记得缩写时也能命中
+    match_key  TEXT NOT NULL DEFAULT '',
+    -- 危级 high / mid / low：决定命中的告警强度与弹窗措辞
+    level      TEXT NOT NULL DEFAULT 'mid',
+    -- 英文缩写要不要区分大小写（vip 与 VIP 是不是同一个词）
+    case_sensitive INTEGER NOT NULL DEFAULT 0,
+    enabled    INTEGER NOT NULL DEFAULT 1,
+    note       TEXT NOT NULL DEFAULT '',
+    -- 命中次数：常用的词排前面，也方便发现"这条规则一直没生效"
+    hit_count  INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL DEFAULT (datetime('now','localtime')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now','localtime'))
+);
+
+-- 同一个词只留一条：重复规则会让同一个问题报两次
+CREATE UNIQUE INDEX IF NOT EXISTS idx_sensitive_word ON sensitive_word(word);
+
+-- 违规事件：敏感词命中落库（主管事后抽检 / 统计用，工单 04 · ④）。
+-- 与 sensitive_word.hit_count 计数器是两回事：计数器只 +1（用于排序「这条规则生效频率」），
+-- 这里存「谁在什么时候、因为哪个词、什么危级违规了」的完整事件，能按词/危级/时间聚合与导出。
+-- seat 在纯单机（A 线）下恒为本机 Windows 用户（os.getlogin()），预留跨机汇总时再扩展。
+CREATE TABLE IF NOT EXISTS violation_events (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    word        TEXT NOT NULL,
+    level       TEXT NOT NULL DEFAULT 'mid',   -- high / mid / low，决定违规严重程度
+    seat        TEXT NOT NULL DEFAULT '',        -- 本机用户；A 线即坐席
+    instance_id TEXT NOT NULL DEFAULT '',        -- 命中的 guard 实例（定位用）
+    tool        TEXT NOT NULL DEFAULT 'guard',
+    detail      TEXT NOT NULL DEFAULT '',        -- 命中上下文（前 200 字）
+    ts          TEXT NOT NULL DEFAULT (datetime('now','localtime'))
+);
+CREATE INDEX IF NOT EXISTS idx_violation_word ON violation_events(word, id);
+CREATE INDEX IF NOT EXISTS idx_violation_ts ON violation_events(ts, id);
+CREATE INDEX IF NOT EXISTS idx_violation_seat ON violation_events(seat, id);
 """
 
 
@@ -182,20 +258,75 @@ def conn() -> sqlite3.Connection:
     return c
 
 
-#: 后加的列：`CREATE TABLE IF NOT EXISTS` 对已经存在的库一个字都不会改，
-#: 所以新列必须显式补。失败就当已经有了（新库由 SCHEMA 直接建好）。
-_MIGRATIONS = (
-    "ALTER TABLE hit_events ADD COLUMN is_read INTEGER NOT NULL DEFAULT 0",
-)
+#: 库结构版本：每次改 SCHEMA、或往 _MIGRATIONS 加一级，都要 +1。
+SCHEMA_VERSION = 5
+
+#: 版本号 → 升到该版本要补的语句。
+#: 新库由 SCHEMA 一次建到最新，这些只在老库上跑（见 ADR-0001 的迁移约定）。
+_MIGRATIONS: dict[int, tuple[str, ...]] = {
+    2: ("ALTER TABLE hit_events ADD COLUMN is_read INTEGER NOT NULL DEFAULT 0",),
+    # 命中瞬间的画面快照（相对素材库根目录的路径，空串 = 没存成）。
+    # 存路径不存图片本身：命中是高频事件，base64 进库会让 db 迅速膨胀。
+    3: ("ALTER TABLE hit_events ADD COLUMN snapshot TEXT NOT NULL DEFAULT ''",),
+    # 告警确认闭环：处置状态 + 确认时刻。
+    4: (
+        "ALTER TABLE hit_events ADD COLUMN disposition TEXT NOT NULL DEFAULT 'pending'",
+        "ALTER TABLE hit_events ADD COLUMN ack_at TEXT",
+    ),
+    # 违规事件表（主管抽检 / 统计）。建表 + 索引；老库上补，新库走 SCHEMA。
+    5: (
+        "CREATE TABLE IF NOT EXISTS violation_events ("
+        "  id INTEGER PRIMARY KEY AUTOINCREMENT,"
+        "  word TEXT NOT NULL,"
+        "  level TEXT NOT NULL DEFAULT 'mid',"
+        "  seat TEXT NOT NULL DEFAULT '',"
+        "  instance_id TEXT NOT NULL DEFAULT '',"
+        "  tool TEXT NOT NULL DEFAULT 'guard',"
+        "  detail TEXT NOT NULL DEFAULT '',"
+        "  ts TEXT NOT NULL DEFAULT (datetime('now','localtime'))"
+        ")",
+        "CREATE INDEX IF NOT EXISTS idx_violation_word ON violation_events(word, id)",
+        "CREATE INDEX IF NOT EXISTS idx_violation_ts ON violation_events(ts, id)",
+        "CREATE INDEX IF NOT EXISTS idx_violation_seat ON violation_events(seat, id)",
+    ),
+}
+
+
+def _is_new_database(c: sqlite3.Connection) -> bool:
+    """`instances` 是最早建的表：它不存在，就说明这是全新库。"""
+    row = c.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='instances'").fetchone()
+    return row is None
+
+
+def _migrate(c: sqlite3.Connection) -> None:
+    """按 `PRAGMA user_version` 把老库逐级升到 SCHEMA_VERSION。
+
+    ADR-0001 约定迁移用 user_version 记账，不引重量级框架。但**失败不再一律吞掉**：
+    只有「列已经存在」（老库被手工补过列）才放过，其余照常抛 —— 否则
+    「迁移真的失败了」和「早就迁过了」根本分不出来。
+    """
+    current = c.execute("PRAGMA user_version").fetchone()[0]
+    for version in sorted(_MIGRATIONS):
+        if version <= current:
+            continue
+        for stmt in _MIGRATIONS[version]:
+            try:
+                c.execute(stmt)
+            except sqlite3.OperationalError as exc:
+                if "duplicate column name" not in str(exc):
+                    raise
+        c.execute(f"PRAGMA user_version = {version}")
+
 
 # 导入时先建表（用一条临时连接，之后各线程自建连接）
 _bootstrap = _connect()
+_fresh = _is_new_database(_bootstrap)
 _bootstrap.executescript(SCHEMA)
-for _stmt in _MIGRATIONS:
-    try:
-        _bootstrap.execute(_stmt)
-    except sqlite3.OperationalError:
-        pass
+if _fresh:
+    # 新库：SCHEMA 已经是最新结构，直接记到当前版本，不必再跑一遍迁移
+    _bootstrap.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
+else:
+    _migrate(_bootstrap)
 _bootstrap.commit()
 _bootstrap.close()
 
@@ -216,6 +347,16 @@ def write() -> Iterator[sqlite3.Connection]:
 def query(sql: str, params: tuple = ()) -> list[dict[str, Any]]:
     cur = conn().execute(sql, params)
     return [dict(r) for r in cur.fetchall()]
+
+
+def like_literal(value: str) -> str:
+    """把用户输入包成 LIKE 的「包含」模式，并转义 `%` / `_` 通配符。
+
+    `%` / `_` 是 LIKE 的元字符：搜「100%」会被当成「包含 100」、搜「a_b」
+    会匹配「aXb」，返回一堆无关结果。调用方 SQL 必须写成 `LIKE ? ESCAPE '\\'`。
+    """
+    escaped = (value or "").replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    return "%%%s%%" % escaped
 
 
 def log(instance_id: str, message: str, level: str = "info") -> None:
@@ -313,8 +454,106 @@ def save_notify_config(patch: dict[str, Any]) -> dict[str, Any]:
     return merged
 
 
+#: settings 表里存「词库文件监听路径」的 key
+WORDLIB_WATCH_KEY = "wordlib_watch"
+
+
+def get_wordlib_path() -> str:
+    """被监听的 wordlib.json 路径；没配过返回空串。"""
+    rows = query("SELECT value_json FROM settings WHERE key=?", (WORDLIB_WATCH_KEY,))
+    if not rows:
+        return ""
+    try:
+        return str(json.loads(rows[0]["value_json"]).get("path") or "")
+    except (ValueError, AttributeError, TypeError):
+        return ""
+
+
+def save_wordlib_path(path: str) -> str:
+    """保存被监听的路径（空串 = 关闭自动同步）。"""
+    path = (path or "").strip()
+    with write() as c:
+        c.execute(
+            "INSERT INTO settings(key, value_json, updated_at) VALUES (?,?,datetime('now','localtime')) "
+            "ON CONFLICT(key) DO UPDATE SET value_json=excluded.value_json, updated_at=excluded.updated_at",
+            (WORDLIB_WATCH_KEY, json.dumps({"path": path}, ensure_ascii=False)),
+        )
+    return path
+
+
+#: settings 表里存「每日汇总」配置的 key
+DAILY_SUMMARY_KEY = "daily_summary"
+#: settings 表里存「待补发的汇总日期」的 key
+DAILY_SUMMARY_PENDING_KEY = "daily_summary_pending"
+
+DEFAULT_DAILY_SUMMARY_CONFIG = {
+    "enabled": False,
+    "send_time": "18:00",
+    "last_sent_date": "",
+}
+
+
+def _merged_daily_summary_config(saved: dict[str, Any]) -> dict[str, Any]:
+    cfg: dict[str, Any] = dict(DEFAULT_DAILY_SUMMARY_CONFIG)
+    if isinstance(saved, dict):
+        if isinstance(saved.get("enabled"), bool):
+            cfg["enabled"] = saved["enabled"]
+        if isinstance(saved.get("send_time"), str) and saved["send_time"]:
+            cfg["send_time"] = saved["send_time"]
+        if isinstance(saved.get("last_sent_date"), str):
+            cfg["last_sent_date"] = saved["last_sent_date"]
+    return cfg
+
+
+def get_daily_summary_config() -> dict[str, Any]:
+    """读取每日汇总配置（没配过就给默认值）。"""
+    rows = query("SELECT value_json FROM settings WHERE key=?", (DAILY_SUMMARY_KEY,))
+    saved = json.loads(rows[0]["value_json"]) if rows else {}
+    return _merged_daily_summary_config(saved)
+
+
+def save_daily_summary_config(patch: dict[str, Any]) -> dict[str, Any]:
+    """合入配置块（enabled / send_time / last_sent_date），返回合并后的完整配置。"""
+    merged = _merged_daily_summary_config({**get_daily_summary_config(), **(patch or {})})
+    with write() as c:
+        c.execute(
+            "INSERT INTO settings(key, value_json, updated_at) VALUES (?,?,datetime('now','localtime')) "
+            "ON CONFLICT(key) DO UPDATE SET value_json=excluded.value_json, updated_at=excluded.updated_at",
+            (DAILY_SUMMARY_KEY, json.dumps(merged, ensure_ascii=False)),
+        )
+    return merged
+
+
+def get_pending_summary_dates() -> list[str]:
+    """待补发的汇总日期（之前 webhook 没发出去的）。"""
+    rows = query("SELECT value_json FROM settings WHERE key=?", (DAILY_SUMMARY_PENDING_KEY,))
+    if not rows:
+        return []
+    try:
+        data = json.loads(rows[0]["value_json"])
+        return [str(d) for d in data.get("dates", [])] if isinstance(data, dict) else []
+    except (ValueError, AttributeError, TypeError):
+        return []
+
+
+def set_pending_summary_dates(dates: "list[str]") -> None:
+    """覆盖待补发日期列表（发出去的就移除）。"""
+    with write() as c:
+        c.execute(
+            "INSERT INTO settings(key, value_json, updated_at) VALUES (?,?,datetime('now','localtime')) "
+            "ON CONFLICT(key) DO UPDATE SET value_json=excluded.value_json, updated_at=excluded.updated_at",
+            (DAILY_SUMMARY_PENDING_KEY, json.dumps({"dates": list(dates)}, ensure_ascii=False)),
+        )
+
+
+#: 处置状态只有两档：还没人管 / 已经闭环。
+#: （「未确认超时」是看板按时间推的第三种显示态，不进这两档，因为它会随钟走。）
+DISPOSITION_PENDING = "pending"
+DISPOSITION_ACKNOWLEDGED = "acknowledged"
+
 HIT_EVENT_FIELDS = (
-    "id, instance_id, tool, rule_id, matched_by, level, title, detail, similarity, rect, notified, is_read, ts"
+    "id, instance_id, tool, rule_id, matched_by, level, title, detail, similarity, rect, snapshot, "
+    "notified, is_read, disposition, ack_at, ts"
 )
 
 
@@ -331,8 +570,13 @@ def _hit_payload(r: dict[str, Any]) -> dict[str, Any]:
         "detail": r["detail"],
         "similarity": r["similarity"],
         "rect": json.loads(r["rect"]) if r["rect"] else None,
+        "snapshot": r["snapshot"] or "",
         "notified": json.loads(r["notified"]) if r["notified"] else {},
         "read": bool(r["is_read"]),
+        # 处置状态：pending / acknowledged。「未确认超时」由前端按 ts 推算，
+        # 这里只交代「库里的客观事实」——是否已被人确认过。
+        "disposition": r["disposition"] or "pending",
+        "ackAt": r["ack_at"] or "",
         "ts": r["ts"],
     }
 
@@ -348,16 +592,20 @@ def record_hit_event(
     similarity: "float | None" = None,
     rect: "list[int] | None" = None,
     notified: "dict[str, str] | None" = None,
+    snapshot: str = "",
 ) -> int:
     """记一次命中事件，返回事件 id。
 
     `notified` 由调用方把分发结果（逐通道 ok/fail）回写进来，
     这样事件列表能回答「这条到底通知出去没有」。
+
+    `snapshot` 是命中瞬间的截图路径（相对素材库根目录）。存图失败传空串即可，
+    命中照记 —— 存图是附加能力，不能反过来卡住主链路。
     """
     with write() as c:
         cur = c.execute(
             "INSERT INTO hit_events(instance_id, tool, rule_id, matched_by, level, title, detail, "
-            "similarity, rect, notified) VALUES (?,?,?,?,?,?,?,?,?,?)",
+            "similarity, rect, notified, snapshot) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
             (
                 instance_id,
                 tool,
@@ -369,6 +617,7 @@ def record_hit_event(
                 None if similarity is None else float(similarity),
                 json.dumps(rect) if rect is not None else None,
                 json.dumps(notified, ensure_ascii=False) if notified else None,
+                snapshot or "",
             ),
         )
         eid = int(cur.lastrowid or 0)
@@ -408,6 +657,32 @@ def mark_hits_read(ids: "list[int] | None" = None) -> int:
             )
         else:
             cur = c.execute("UPDATE hit_events SET is_read=1 WHERE is_read=0")
+        return int(cur.rowcount or 0)
+
+
+def ack_hit_events(ids: "list[int] | None" = None) -> int:
+    """确认命中事件（闭环），返回**本次真正被确认**的条数。
+
+    不传 ids = 全部确认（跨实例，与「全部标记已读」同一脾气）。
+    已确认的不再重复计数，否则「确认了多少条」这种统计会越点越虚。
+
+    顺带标记已读：确认意味着「处理了」，处理过的一定看过了 ——
+    再让已确认的挂在未读角标上，用户会以为还有事没看完。
+    """
+    ids = [int(i) for i in ids] if ids else None
+    with write() as c:
+        if ids:
+            cur = c.execute(
+                "UPDATE hit_events SET disposition=?, ack_at=datetime('now','localtime'), is_read=1 "
+                "WHERE disposition!=? AND id IN (%s)" % ",".join("?" * len(ids)),
+                (DISPOSITION_ACKNOWLEDGED, DISPOSITION_ACKNOWLEDGED, *ids),
+            )
+        else:
+            cur = c.execute(
+                "UPDATE hit_events SET disposition=?, ack_at=datetime('now','localtime'), is_read=1 "
+                "WHERE disposition!=?",
+                (DISPOSITION_ACKNOWLEDGED, DISPOSITION_ACKNOWLEDGED),
+            )
         return int(cur.rowcount or 0)
 
 
@@ -453,6 +728,135 @@ def list_hit_events(
     sql += " ORDER BY id DESC LIMIT ?"
     args.append(int(limit))
     return [_hit_payload(r) for r in query(sql, tuple(args))]
+
+
+#: 违规事件字段（与 hits 分开：违规是可聚合的「谁因为哪个词违规了」记录）
+VIOLATION_FIELDS = "id, word, level, seat, instance_id, tool, detail, ts"
+
+
+def record_violation(
+    word: str,
+    level: str = "mid",
+    seat: str = "",
+    instance_id: str = "",
+    tool: str = "guard",
+    detail: str = "",
+) -> int:
+    """记一次敏感词违规事件，返回事件 id。
+
+    与 ``hit_count`` 计数器互补：计数器只 +1（用于排序「这条规则生效频率」），
+    这里存完整事件，让主管能事后按词 / 危级 / 时间聚合、导出、抽检。
+    """
+    with write() as c:
+        cur = c.execute(
+            "INSERT INTO violation_events(word, level, seat, instance_id, tool, detail) "
+            "VALUES (?,?,?,?,?,?)",
+            (word, level, seat or "", instance_id or "", tool or "guard", detail or ""),
+        )
+        return int(cur.lastrowid or 0)
+
+
+def _violation_payload(r: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "id": r["id"],
+        "word": r["word"],
+        "level": r["level"],
+        "seat": r["seat"] or "",
+        "instanceId": r["instance_id"] or "",
+        "tool": r["tool"] or "guard",
+        "detail": r["detail"] or "",
+        "ts": r["ts"],
+    }
+
+
+def list_violations(
+    word: "str | None" = None,
+    level: "str | None" = None,
+    seat: "str | None" = None,
+    date_from: "str | None" = None,
+    date_to: "str | None" = None,
+    limit: int = 500,
+    before_id: "int | None" = None,
+) -> list[dict[str, Any]]:
+    """检索违规事件（最新在前）。
+
+    筛选轴对齐主管抽检：按词、按危级、按坐席、按时间区间。
+    ``date_from`` / ``date_to`` 用 ``date(ts)`` 比较，传 ``YYYY-MM-DD`` 即可。
+    """
+    where: list[str] = []
+    args: list[Any] = []
+    if word is not None:
+        where.append("word=?")
+        args.append(word)
+    if level is not None:
+        where.append("level=?")
+        args.append(level)
+    if seat is not None:
+        where.append("seat=?")
+        args.append(seat)
+    if date_from is not None:
+        where.append("date(ts) >= date(?)")
+        args.append(date_from)
+    if date_to is not None:
+        where.append("date(ts) <= date(?)")
+        args.append(date_to)
+    if before_id is not None:
+        where.append("id<?")
+        args.append(int(before_id))
+    sql = f"SELECT {VIOLATION_FIELDS} FROM violation_events"
+    if where:
+        sql += " WHERE " + " AND ".join(where)
+    sql += " ORDER BY id DESC LIMIT ?"
+    args.append(int(limit))
+    return [_violation_payload(r) for r in query(sql, tuple(args))]
+
+
+def summarize_violations(filters: "dict[str, Any] | None" = None) -> dict[str, Any]:
+    """聚合违规事件，供统计页消费。
+
+    返回总数、按词计数（带上该词的最高危级）、按危级计数。
+    时间 / 词 / 危级 / 坐席 筛选同样生效，统计页的筛选条件直接透传。
+    """
+    filters = filters or {}
+    where: list[str] = []
+    args: list[Any] = []
+    if filters.get("word"):
+        where.append("word=?")
+        args.append(filters["word"])
+    if filters.get("level"):
+        where.append("level=?")
+        args.append(filters["level"])
+    if filters.get("seat"):
+        where.append("seat=?")
+        args.append(filters["seat"])
+    if filters.get("date_from"):
+        where.append("date(ts) >= date(?)")
+        args.append(filters["date_from"])
+    if filters.get("date_to"):
+        where.append("date(ts) <= date(?)")
+        args.append(filters["date_to"])
+    clause = (" WHERE " + " AND ".join(where)) if where else ""
+
+    total = query(f"SELECT COUNT(*) AS n FROM violation_events{clause}", tuple(args))[0]["n"]
+
+    # 按词计数，level 取该词命中的最高危级（high>mid>low），便于统计页按色块标危级
+    by_word: list[dict] = []
+    for r in query(
+        "SELECT word,"
+        " CASE MAX(CASE level WHEN 'high' THEN 3 WHEN 'mid' THEN 2 ELSE 1 END)"
+        "  WHEN 3 THEN 'high' WHEN 2 THEN 'mid' ELSE 'low' END AS level,"
+        " COUNT(*) AS c"
+        f" FROM violation_events{clause} GROUP BY word ORDER BY c DESC, word",
+        tuple(args),
+    ):
+        by_word.append({"word": r["word"], "level": r["level"], "count": int(r["c"])})
+
+    by_level_rows = query(
+        f"SELECT level, COUNT(*) AS c FROM violation_events{clause} GROUP BY level", tuple(args)
+    )
+    by_level = {row["level"]: int(row["c"]) for row in by_level_rows}
+
+    return {"total": int(total), "byWord": by_word, "byLevel": by_level}
 
 
 def record_monitor_hit(

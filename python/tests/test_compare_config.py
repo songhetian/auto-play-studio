@@ -5,14 +5,14 @@
 """
 from __future__ import annotations
 
-from engine.compare.config_io import apply_config, dump_config
+from engine.compare.config_io import Plan
 
 
-def test_dump_config_keeps_everything_the_plan_needs(front_backend, primary_fields):
+def test_plan_from_tables_keeps_everything_the_plan_needs(front_backend, primary_fields):
     a, b = front_backend
     others = [{"table": b, "maps": {"订单号": "订单号", "退差金额": "退差金额"}}]
 
-    cfg = dump_config(a, primary_fields, others, 0.05)
+    cfg = Plan.from_tables(a, primary_fields, others, 0.05).to_dict()
 
     assert cfg["version"] == 2
     assert cfg["primary"] == "前台.xlsx"
@@ -24,18 +24,16 @@ def test_dump_config_keeps_everything_the_plan_needs(front_backend, primary_fiel
 def test_apply_config_restores_roles_and_maps(front_backend, primary_fields):
     a, b = front_backend
     others = [{"table": b, "maps": {"订单号": "订单号", "退差金额": "退差金额"}}]
-    cfg = dump_config(a, primary_fields, others, 0.05)
+    plan = Plan.from_tables(a, primary_fields, others, 0.05)
 
     blank_fields = [{"name": c, "role": "compare", "type": "text"} for c in a["columns"]]
-    new_fields, new_others, tol = apply_config(
-        cfg, a, blank_fields, [{"table": b, "maps": {}}], 0.0
-    )
+    applied = plan.apply_to(a, blank_fields, [{"table": b, "maps": {}}], 0.0)
 
-    by_name = {f["name"]: f for f in new_fields}
+    by_name = {f["name"]: f for f in applied.primary_fields}
     assert by_name["订单号"]["role"] == "key", "主键角色要被还原"
     assert by_name["退差金额"]["type"] == "number", "字段类型要被还原"
-    assert tol == 0.05
-    assert new_others[0]["maps"]["订单号"] == "订单号"
+    assert applied.tolerance == 0.05
+    assert applied.others[0]["maps"]["订单号"] == "订单号"
 
 
 def test_apply_config_keeps_only_columns_that_exist(table_factory, primary_fields):
@@ -51,20 +49,21 @@ def test_apply_config_keeps_only_columns_that_exist(table_factory, primary_field
     }
     fields = [{"name": "订单号", "role": "key", "type": "text"}]
 
-    _nf, others, _tol = apply_config(cfg, a, fields, [{"table": b, "maps": {}}], 0.0)
+    applied = Plan.from_dict(cfg).apply_to(a, fields, [{"table": b, "maps": {}}], 0.0)
 
-    assert others[0]["maps"] == {"订单号": "订单号"}
+    assert applied.others[0]["maps"] == {"订单号": "订单号"}
 
 
 def test_apply_config_does_nothing_when_primary_name_differs(front_backend, primary_fields):
     a, b = front_backend
-    cfg = dump_config(a, primary_fields, [], 0.05)
+    cfg = Plan.from_tables(a, primary_fields, [], 0.05).to_dict()
     cfg["primary"] = "另一张表.xlsx"
 
-    new_fields, _others, tol = apply_config(cfg, a, primary_fields, [], 0.0)
+    applied = Plan.from_dict(cfg).apply_to(a, primary_fields, [], 0.0)
 
-    assert new_fields == primary_fields, "主表对不上时应原样保留"
-    assert tol == 0.0
+    assert applied.matched is False, "主表名对不上要显式暴露为未匹配"
+    assert applied.primary_fields == primary_fields, "主表对不上时应原样保留"
+    assert applied.tolerance == 0.0
 
 
 def test_unknown_table_keeps_blank_maps(table_factory):
@@ -73,6 +72,6 @@ def test_unknown_table_keeps_blank_maps(table_factory):
     fields = [{"name": "订单号", "role": "key", "type": "text"}]
     cfg = {"version": 2, "primary": "A.xlsx", "tolerance": 0.0, "primary_fields": fields, "others": []}
 
-    _nf, others, _tol = apply_config(cfg, a, fields, [{"table": b, "maps": {}}], 0.0)
+    applied = Plan.from_dict(cfg).apply_to(a, fields, [{"table": b, "maps": {}}], 0.0)
 
-    assert others[0]["maps"] == {"订单号": None}
+    assert applied.others[0]["maps"] == {"订单号": None}

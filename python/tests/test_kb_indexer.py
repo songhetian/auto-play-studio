@@ -26,7 +26,7 @@ def _clean_kb_tables():
     from engine import db
 
     with db.write() as c:
-        for t in ("kb_folder", "kb_doc", "kb_para", "kb_history"):
+        for t in ("kb_folder", "kb_doc", "kb_para", "kb_history", "kb_embed"):
             c.execute(f"DELETE FROM {t}")
     yield
 

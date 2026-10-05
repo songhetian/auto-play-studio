@@ -65,6 +65,11 @@ class FakeDriver:
         self.scripted = {k: list(v) for k, v in (scripted or {}).items()}
         #: 找不到的窗口标题：镜像真驱动「找不到就抛」的行为
         self.missing_windows = missing_windows or set()
+        #: 剪贴板假身：write 之后 read 要能读回同一个值
+        self.clipboard: str = ""
+        self.screenshots: list[str] = []
+        self.screen_size: tuple[int, int] = (1920, 1080)
+        self.cursor: tuple[int, int] = (0, 0)
 
     def activate_window(self, title: str) -> None:
         self.calls.append(("activate_window", title))
@@ -89,6 +94,43 @@ class FakeDriver:
 
     def sleep(self, seconds: float) -> None:
         self.calls.append(("sleep", seconds))
+
+    # ── 扩充指令库用到的原语（与 Driver 协议一一对应）──────────
+
+    def click_button(self, x: int, y: int, button: str = "left", clicks: int = 1) -> None:
+        self.calls.append(("click_button", x, y, button, clicks))
+
+    def move_to(self, x: int, y: int, duration_ms: int = 0) -> None:
+        self.calls.append(("move_to", x, y, duration_ms))
+
+    def scroll(self, amount: int) -> None:
+        self.calls.append(("scroll", amount))
+
+    def drag_to(self, x1: int, y1: int, x2: int, y2: int, duration_ms: int = 300) -> None:
+        self.calls.append(("drag_to", x1, y1, x2, y2, duration_ms))
+
+    def copy_to_clipboard(self, text: str) -> None:
+        self.clipboard = text
+        self.calls.append(("copy_to_clipboard", text))
+
+    def paste_from_clipboard(self) -> None:
+        self.calls.append(("paste_from_clipboard",))
+
+    def read_clipboard(self) -> str:
+        self.calls.append(("read_clipboard",))
+        return self.clipboard
+
+    def screenshot_to(self, path: str) -> None:
+        self.screenshots.append(path)
+        self.calls.append(("screenshot_to", path))
+
+    def get_screen_size(self) -> tuple[int, int]:
+        self.calls.append(("get_screen_size",))
+        return self.screen_size
+
+    def cursor_position(self) -> tuple[int, int]:
+        self.calls.append(("cursor_position",))
+        return self.cursor
 
     # 断言辅助
     def kinds(self) -> list[str]:

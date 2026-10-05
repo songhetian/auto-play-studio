@@ -34,6 +34,40 @@ def test_upload_rejects_non_excel(client, make_instance, tmp_path):
     assert r.status_code == 400
 
 
+def test_upload_rejects_old_xls_and_csv_with_a_readable_reason(client, make_instance, tmp_path):
+    """.xls / .csv 是 openpyxl 读不了的：硬读只会抛后端异常（500）。
+
+    拖拽框写着支持 .xls/.csv，用户照着拖进来必须得到一句「另存为 .xlsx」，
+    而不是一个看不懂的 500。
+    """
+    iid = make_instance("rpa", rpa_cfg(""))
+    for name in ("a.csv", "b.xls"):
+        p = tmp_path / name
+        p.write_text("a,b\n1,2\n")
+        with open(p, "rb") as f:
+            r = client.post(f"/api/instances/{iid}/excel", files={"file": (name, f, "application/octet-stream")})
+        assert r.status_code == 400, name
+        assert "xlsx" in r.json()["detail"], name
+
+
+def test_deleting_a_running_instance_stops_its_thread(client, make_instance):
+    """删掉实例就该停掉它的 worker —— 否则线程一直跑，继续落命中、发通知。
+
+    尤其 monitor/guard：循环是 `while not stop`，被删掉后仍会无限轮询屏幕。
+    """
+    from engine.runner import _RUNNERS, get_runner
+
+    iid = make_instance("monitor", {"tool": "monitor", "region": "full", "rules": []})
+    runner = get_runner(iid)
+    calls: list[int] = []
+    runner.stop = lambda: calls.append(1) or True
+
+    assert client.delete(f"/api/instances/{iid}").status_code == 200
+
+    assert calls == [1], "删除实例必须停掉它的运行线程"
+    assert iid not in _RUNNERS, "注册表里不能留下已删实例的 runner"
+
+
 def test_control_endpoint_rejects_illegal_action(client, make_instance, order_xlsx):
     iid = make_instance("rpa", rpa_cfg(order_xlsx))
     assert client.post(f"/api/instances/{iid}/control/pause").status_code == 409, "空闲实例不能暂停"
@@ -75,6 +109,43 @@ def test_created_instance_appears_in_list(client):
 
     ids = [i["id"] for i in client.get("/api/instances").json()]
     assert iid in ids
+
+
+def test_rename_updates_name_and_keeps_config(client):
+    """改名只动名字：配置、工具、状态都要原样留着。"""
+    iid = client.post("/api/instances", json={"name": "旧名字", "tool": "logi"}).json()["id"]
+    before = client.get("/api/instances").json()
+    old = next(i for i in before if i["id"] == iid)
+
+    r = client.patch(f"/api/instances/{iid}", json={"name": "千牛-自动回复"})
+    assert r.status_code == 200
+    assert r.json()["name"] == "千牛-自动回复"
+
+    after = next(i for i in client.get("/api/instances").json() if i["id"] == iid)
+    assert after["name"] == "千牛-自动回复"
+    assert after["tool"] == old["tool"]
+    assert after["config"] == old["config"]
+
+
+def test_rename_rejects_blank_name(client):
+    """空名/纯空格必须拒掉：否则列表里会出现一个没有名字的行，用户根本认不出是哪个。"""
+    iid = client.post("/api/instances", json={"name": "原名", "tool": "logi"}).json()["id"]
+    for bad in ["", "   ", "\n"]:
+        assert client.patch(f"/api/instances/{iid}", json={"name": bad}).status_code == 400
+    # 名没被改坏
+    assert next(i for i in client.get("/api/instances").json() if i["id"] == iid)["name"] == "原名"
+
+
+def test_rename_same_name_is_noop(client):
+    """改成一样的名字直接回 ok，不必写库也不必报错（用户可能点两次保存）。"""
+    iid = client.post("/api/instances", json={"name": "不变", "tool": "logi"}).json()["id"]
+    r = client.patch(f"/api/instances/{iid}", json={"name": "不变"})
+    assert r.status_code == 200
+    assert r.json()["ok"] is True
+
+
+def test_rename_unknown_instance_404(client):
+    assert client.patch("/api/instances/ZZZZ", json={"name": "x"}).status_code == 404
 
 
 def test_rows_endpoint_uses_the_frontend_field_names(client, make_instance, order_xlsx, wait_status):

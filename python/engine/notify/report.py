@@ -15,6 +15,7 @@ from typing import Mapping, Sequence
 from .dispatch import deliver
 from .model import Channel, NotifyPayload
 from .quiet import in_quiet_window
+from . import wording
 from .. import db
 
 
@@ -29,6 +30,7 @@ def report_hit(
     detail: str = "",
     similarity: "float | None" = None,
     rect: "list[int] | None" = None,
+    snapshot: str = "",
     channels: "Sequence[Channel] | None" = None,
     routing: "Mapping[str, Sequence[str]] | None" = None,
     now: "datetime | None" = None,
@@ -37,6 +39,9 @@ def report_hit(
 
     `channels` / `routing` / `now` 不传就走真机路径（读配置、取当前时间）；传了就是注入（测试路径）。
     静音期间**事件照记、通道不发** —— 命中不能因为人在开会就丢。
+
+    `snapshot` 是命中瞬间的截图路径（调用方用 `engine.snapshots` 存好再传进来）。
+    存图失败传空串即可：命中照记，存图是附加能力，不能反过来卡住主链路。
     """
     event_id = db.record_hit_event(
         instance_id=instance_id,
@@ -48,16 +53,21 @@ def report_hit(
         detail=detail,
         similarity=similarity,
         rect=rect,
+        snapshot=snapshot,
     )
 
     cfg = db.get_notify_config()
     wanted = routing if routing is not None else cfg["routing"]
     targets = list(channels) if channels is not None else build_channels(cfg)
 
+    # 系统通知的文案走 wording（与应用内横幅同一真源）：同一件事在两层里
+    # 说同一句话。事件表里仍记调用方给的原始 title/detail —— 那是排查用的原始信息。
+    text = wording.compose(tool=tool, level=level, title=title, detail=detail)
+
     notified = deliver(
         NotifyPayload(
-            title=title,
-            detail=detail,
+            title=text.title,
+            detail=text.body,
             level=level,
             instance_id=instance_id,
             rule_id=rule_id,

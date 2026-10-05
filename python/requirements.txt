@@ -5,6 +5,13 @@ starlette>=0.41.0
 uvicorn==0.30.5
 python-multipart==0.0.9   # Excel 上传
 openpyxl==3.1.5          # Excel 读写与状态回写
+pypinyin==0.55.0         # 知识库中文检索（拼音首字母 tkzc → 退款政策）
+#
+# ── 知识库语义检索（可选增强：不装则检索自动退回纯关键词，见 engine/kb/embed.py）──
+# 模型资产（bge-small-zh-v1.5）不入仓库，用 python/scripts/fetch_kb_model.py 拉。
+numpy>=1.26              # 向量点积（暴力余弦）
+onnxruntime>=1.17        # CPU 推理后端
+tokenizers>=0.21         # 与模型配套的分词器（>=0.21 才有 Python 3.13 的 wheel）
 #
 # ── RPA 真实驱动（按需安装；不装引擎也能起，只在执行指令时报可读的缺依赖提示）──
 # pyautogui==0.9.54        # 键盘鼠标

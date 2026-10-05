@@ -304,6 +304,50 @@ def test_stop_brings_instance_back_to_idle(make_instance, xlsx_factory, wait_sta
     assert len(executor.calls) < 20, "停止后不应继续执行剩余行"
 
 
+def test_send_interval_throttles_between_rows(make_instance, order_xlsx, wait_status, monkeypatch):
+    """每行之间的节流：防止向目标窗口发送过快被风控/限流。
+
+    末行之后不必等待，所以 2 行只应在第 1 行后睡一次（时长 = sendIntervalMs/1000）。
+
+    只记录**工作线程**里的 sleep：轮询助手 wait_status 也在主线程里调 time.sleep(0.05)，
+    全局打补丁会把那些也录进来，靠线程区分才能只验 runner 的节流。
+    """
+    import threading
+
+    import engine.runner as runner_mod
+
+    sleeps: list[float] = []
+    monkeypatch.setattr(
+        runner_mod.time,
+        "sleep",
+        lambda s: sleeps.append(s) if threading.current_thread() is not threading.main_thread() else None,
+    )
+
+    iid = make_instance("rpa", rpa_cfg(order_xlsx, sendIntervalMs=100))
+    run_to_completion(iid, FakeExecutor(), wait_status)
+
+    assert sleeps == [0.1], sleeps
+
+
+def test_send_interval_zero_skips_throttling(make_instance, order_xlsx, wait_status, monkeypatch):
+    """sendIntervalMs=0 表示不节流：验证「不等待」的实现路径。"""
+    import threading
+
+    import engine.runner as runner_mod
+
+    sleeps: list[float] = []
+    monkeypatch.setattr(
+        runner_mod.time,
+        "sleep",
+        lambda s: sleeps.append(s) if threading.current_thread() is not threading.main_thread() else None,
+    )
+
+    iid = make_instance("rpa", rpa_cfg(order_xlsx, sendIntervalMs=0))
+    run_to_completion(iid, FakeExecutor(), wait_status)
+
+    assert sleeps == [], sleeps
+
+
 def test_skip_can_be_disabled(make_instance, order_xlsx, wait_status):
     iid = make_instance("rpa", rpa_cfg(order_xlsx, skipSuccess=False))
     run_to_completion(iid, FakeExecutor(), wait_status)
@@ -396,3 +440,35 @@ def test_logi_keeps_running_past_captcha_when_pause_disabled(make_instance, xlsx
     assert runner.start()
     assert wait_status(iid, {"completed"}, 10) == "completed"
     assert last_run_records(iid) == [("SF1", "err"), ("SF2", "err")]
+
+
+def test_double_start_on_screen_tool_does_not_release_the_screen_lock(
+    make_instance, order_xlsx, xlsx_factory, wait_status
+):
+    """重复点「开始」不该把正在跑的那个实例的屏幕锁放掉。
+
+    第二次 start 会因状态非法而失败，但锁是**同一个实例**握着的：
+    早先的失败路径无条件 release，于是锁被放掉 —— 另一个 rpa 实例立刻能抢进来，
+    两个实例同时动键鼠，正好是 screen_lock 存在的意义所在。
+    """
+    i1 = make_instance("rpa", rpa_cfg(order_xlsx), name="被重复点")
+    i2 = make_instance(
+        "rpa", rpa_cfg(xlsx_factory(["客户名称"], [["王五"]], name="b.xlsx")), name="趁虚而入"
+    )
+
+    blocker = BlockingExecutor()
+    runner = make_runner(i1, executor=blocker)
+    assert runner.start()
+    assert blocker.started.wait(5), "第一个实例应当先跑起来、握住屏幕"
+
+    # 再点一次「开始」：应当被拒绝，且屏幕锁不能被放掉
+    assert runner.start() is False
+    assert screen_lock.holder() == i1, "重复 start 不能把正在跑的实例的屏幕锁放掉"
+
+    # 此时无关的另一个 rpa 实例仍然抢不到屏幕
+    with pytest.raises(ScreenBusy):
+        make_runner(i2, executor=FakeExecutor()).start()
+
+    blocker.gate.set()
+    assert wait_status(i1, {"completed"}, 10) == "completed"
+    assert screen_lock.holder() is None

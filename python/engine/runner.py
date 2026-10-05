@@ -15,8 +15,10 @@ from . import excel
 from .commands import run_commands
 from .driver import Driver, DriverUnavailable, build_driver
 from .notify.report import report_hit
+from .text_grabber import build_grabber
 from .providers import CaptchaEncountered, LogisticsProvider, build_provider
 from . import screen_lock
+from .screen_lock import ScreenBusy
 
 ALLOWED_TRANSITIONS: dict[str, set[str]] = {
     "idle": {"starting", "armed", "error"},
@@ -119,17 +121,23 @@ class InstanceRunner:
             self._set_status("idle")
 
         # 碰屏互斥：rpa/macro 要动真键鼠，一块屏幕同一时刻只能有一个在跑。
-        # 抢不到就抛 ScreenBusy（此刻状态一个字没改，调用方拿得到「被谁占着」）；
-        # 锁在 `_run` 的 finally 里放，所以「点了开始但没跑起来」的路径要在这里补放。
-        holds_screen = False
-        if screen_lock.is_screen_tool(self._tool()):
-            screen_lock.acquire_or_raise(self.id)
-            holds_screen = True
-
+        # 抢不到就抛 ScreenBusy，调用方拿得到「被谁占着」。
+        #
+        # 顺序很关键：**先做状态转换（原子），成功了再抢锁**。
+        # 反过来（先抢锁再转状态）在「同一实例重复点开始」时会出事：
+        # 状态还是 running、转 starting 失败 → 走到失败分支把锁 release 掉，
+        # 而锁正是这个**正在跑**的实例握着的 —— 另一个 rpa 实例立刻能抢进来，
+        # 两个实例同时动键鼠。所以失败路径只在「确实是新起的这一轮」才需要退锁。
+        holds_screen = screen_lock.is_screen_tool(self._tool())
         if not self._set_status("starting"):
-            if holds_screen:
-                screen_lock.release(self.id)
             return False
+        if holds_screen:
+            try:
+                screen_lock.acquire_or_raise(self.id)
+            except ScreenBusy:
+                # 抢不到：把状态退回 idle，让用户能原样重试（start 前只会是 idle/error）
+                self._set_status("idle")
+                raise
 
         self._pause.clear()
         self._stop.clear()
@@ -181,6 +189,8 @@ class InstanceRunner:
                 self._run_cmp(cfg)
             elif cfg.get("tool") == "monitor":
                 self._run_monitor(cfg)
+            elif cfg.get("tool") == "guard":
+                self._run_guard(cfg)
             elif cfg.get("tool") == "macro":
                 failed = not self._run_macro(cfg)
             else:
@@ -228,6 +238,9 @@ class InstanceRunner:
         self._activate_bound_window(cfg)
 
         done = 0
+        # 每行之间的节流间隔：防止向目标窗口发送过快被风控/限流。
+        # 默认 500ms（见 DEFAULT_CONFIG / rpaConfigSchema）；配置缺失时回落到 0（不节流）。
+        interval_s = max(0, int(rpa.get("sendIntervalMs", 500))) / 1000.0
         for r in rows:
             if not self._wait_gate():
                 break
@@ -253,7 +266,9 @@ class InstanceRunner:
             with db.write() as c:
                 c.execute("UPDATE instances SET progress_done=? WHERE id=?", (done, self.id))
             self.on_log(f"行 {r['row_no']}「{r['key']}」{'成功' if ok else '失败：' + msg}")
-            time.sleep(0.05)
+            # 末行之后无需等待；仅行与行之间节流。
+            if interval_s and done < len(rows):
+                time.sleep(interval_s)
 
     def _activate_bound_window(self, cfg: dict) -> None:
         """把「绑定窗口」切到前台，一轮只做一次。
@@ -419,42 +434,192 @@ class InstanceRunner:
         """
         from .monitor import build_monitor, make_alert
 
+        # 本轮的命中快照：asset_id → 相对素材库根目录的路径。
+        # 存图成功时引擎通过 on_snapshot 回调塞进来，report_hit 时取用；
+        # 存不下就没有这一项，命中照记 —— 存图是附加能力，不能卡住监控。
+        shots: dict[str, str] = {}
+
+        def _take_snapshot(asset_id: str, rel: str) -> None:
+            shots[asset_id] = rel
+
         # 声音告警是设备层钩子（仅真机验收）；测试注入的 engine 走自己的路径
-        engine = self._monitor_engine or build_monitor(cfg, on_hit=make_alert(cfg), on_log=self.on_log)
+        engine = self._monitor_engine or build_monitor(
+            cfg,
+            on_hit=make_alert(cfg),
+            on_snapshot=_take_snapshot,
+            on_log=self.on_log,
+            instance_id=self.id,
+        )
         # 进度：规则数作可视化总量，每命中一条 +1（仅展示用，不影响监控逻辑）
         with db.write() as c:
             c.execute("UPDATE instances SET progress_total=? WHERE id=?", (len(engine.zones), self.id))
         done = 0
-        while not self._stop.is_set():
-            if not self._wait_gate():
-                break
-            try:
-                hits = engine.poll_once()
-            except Exception as exc:  # noqa: BLE001
-                db.log(self.id, f"监控轮询异常：{exc}", "error")
-                self.on_log(f"监控轮询异常：{exc}")
-                hits = []
-            for asset_id, sim, rect in hits:
-                db.log(self.id, f"命中「{asset_id}」 相似度 {sim:.0%} 位置{rect}", "info")
-                # 走 report_hit 而不是直接落库：命中要有出口，否则盯屏的人根本不知道命中了
-                report_hit(
-                    instance_id=self.id,
-                    tool="monitor",
-                    rule_id=asset_id,
-                    matched_by="image",
-                    level="alert",
-                    title=_asset_name(asset_id),
-                    detail=f"相似度 {sim:.0%}",
-                    similarity=sim,
-                    rect=rect,
-                )
-                self.on_log(f"命中「{asset_id}」 相似度 {sim:.0%}")
-                done += 1
-                with db.write() as c:
-                    c.execute("UPDATE instances SET progress_done=? WHERE id=?", (done, self.id))
-            if self._stop.is_set():
-                break
-            self._stop.wait(engine.poll_interval)
+        try:
+            while not self._stop.is_set():
+                if not self._wait_gate():
+                    break
+                shots.clear()  # 每轮重来：上轮的快照不能配到这轮的命中上
+                try:
+                    hits = engine.poll_once()
+                except Exception as exc:  # noqa: BLE001
+                    db.log(self.id, f"监控轮询异常：{exc}", "error")
+                    self.on_log(f"监控轮询异常：{exc}")
+                    hits = []
+                # 快照按 asset_id 缓存：on_snapshot 在存图成功时回调，report_hit 时取。
+                for asset_id, sim, rect in hits:
+                    db.log(self.id, f"命中「{asset_id}」 相似度 {sim:.0%} 位置{rect}", "info")
+                    # 走 report_hit 而不是直接落库：命中要有出口，否则盯屏的人根本不知道命中了
+                    report_hit(
+                        instance_id=self.id,
+                        tool="monitor",
+                        rule_id=asset_id,
+                        matched_by="image",
+                        level="alert",
+                        title=_asset_name(asset_id),
+                        detail=f"相似度 {sim:.0%}",
+                        similarity=sim,
+                        rect=rect,
+                        snapshot=shots.get(asset_id, ""),
+                    )
+                    self.on_log(f"命中「{asset_id}」 相似度 {sim:.0%}")
+                    done += 1
+                    with db.write() as c:
+                        c.execute("UPDATE instances SET progress_done=? WHERE id=?", (done, self.id))
+                if self._stop.is_set():
+                    break
+                self._stop.wait(engine.poll_interval)
+        finally:
+            # 退出时释放抓屏句柄（mss 的 GDI/设备上下文）——
+            # 之前从不调用，反复启停会一路累积；注入的假内核可能没有 shutdown
+            shutdown = getattr(engine, "shutdown", None)
+            if callable(shutdown):
+                try:
+                    shutdown()
+                except Exception:  # noqa: BLE001 — 释放失败不该影响停止流程
+                    pass
+
+    def _run_guard(self, cfg: dict) -> None:
+        """敏感词监控：持续读取目标窗口的待发文本，命中违禁词即落事件 + 告警。
+
+        与 `_run_monitor` 的区别只在「匹配什么」：那边是屏幕区域里的图片模板，
+        这边是窗口输入框里的文字。pause/stop 由状态机驱动，与其它工具一致。
+
+        **去重是硬要求**：客服正在打字时，同一句话会连续几轮都被读到，
+        每轮都弹窗等于把告警变成噪音，用户最后会直接把告警关掉。
+        """
+        from .sensitive import match_words, should_alert, summarize
+        from .sensitive_words import service
+
+        guard = cfg.get("guard") or {}
+        window = str(cfg.get("window") or guard.get("window") or "").strip()
+        # 事件级别用工具配置里的 alertSound（与图片监控同一套铃声/音量/静音开关）
+        alert_cfg = cfg.get("alertSound")
+        levels = tuple(guard.get("levels") or ("high", "mid", "low"))
+
+        if not window:
+            db.log(self.id, "没有绑定目标窗口，无法确定该读哪个输入框", "error")
+            self.on_log("没有绑定目标窗口，无法确定该读哪个输入框")
+            return
+
+        grabber = build_grabber(cfg)
+        # 声音告警复用图片监控那套（每个实例用自己的铃声/静音开关）。
+        # 复用而不是复制一份：两处各写一套，迟早会出现"图片监控改了声音、
+        # 敏感词监控没跟着改"的不一致。设备层失败静默降级，不影响告警本身。
+        from .monitor import make_alert
+
+        on_alert = make_alert(cfg)
+
+        # 已经报过的文本指纹：同一句话不重复报。指纹用「命中词+文本摘要」，
+        # 只用文本的话，改一个字就当新话报，用户会觉得系统在乱报。
+        reported: dict[str, float] = {}
+        #: 同一段文本的重复静默期（秒）：窗口内不再报
+        dedupe_window = 120.0
+        done = 0
+
+        self.on_log(f"敏感词监控已启动：盯「{window}」，词库 {len(service.get_rules())} 条")
+        try:
+            while not self._stop.is_set():
+                if not self._wait_gate():
+                    break
+                try:
+                    result = grabber.poll()
+                except Exception as exc:  # noqa: BLE001
+                    db.log(self.id, f"抓取文本异常：{exc}", "error")
+                    self.on_log(f"抓取文本异常：{exc}")
+                    result = None
+
+                if result is not None and not result.text:
+                    # 抓不到内容要说清原因，否则"开了但没反应"无从排查
+                    note = result.note or "这轮没有读到输入框内容"
+                    self.on_log(note)
+                    db.log(self.id, note, "info")
+                    self._stop.wait(1.0)
+                    continue
+
+                if result is not None:
+                    # 降级说明只在状态变化那一轮出现，也要写进运行详情 ——
+                    # 用户事后翻日志才知道"它当时读的是剪贴板不是界面控件"
+                    if result.note:
+                        self.on_log(result.note)
+                        db.log(self.id, result.note, "info")
+
+                if result is not None and result.text:
+                    rules = service.get_rules()
+                    hits = match_words(result.text, rules)
+                    if should_alert(hits, enabled_levels=levels):
+                        summary = summarize(hits)
+                        # 去重：同一段文本在静默期内只报一次
+                        key = "%s|%s" % (summary, hash(result.text))
+                        now = time.time()
+                        if now - reported.get(key, 0.0) > dedupe_window:
+                            reported[key] = now
+                            top = hits[0]
+                            # 词库命中次数 +1：用于排序与"这条规则一直没生效"的判断
+                            for h in hits:
+                                try:
+                                    row = db.query(
+                                        "SELECT id FROM sensitive_word WHERE word=? AND enabled=1",
+                                        (h.word,),
+                                    )
+                                    if row:
+                                        service.bump_hit(row[0]["id"])
+                                except Exception:  # noqa: BLE001 —— 计数失败不该影响告警
+                                    pass
+                            # 逐条落违规事件：主管事后能按词/危级/时间抽检与统计，
+                            # 计数（bump_hit）只 +1，没有这条完整记录就做不了统计。
+                            service.record_violations(hits, instance_id=self.id, text=result.text)
+                            report_hit(
+                                instance_id=self.id,
+                                tool="guard",
+                                rule_id=top.word,
+                                matched_by="keyword",
+                                level="alert",
+                                title=summary,
+                                detail=result.text[:200],
+                            )
+                            if on_alert:
+                                try:
+                                    on_alert(top.word, 1.0, None)
+                                except Exception:  # noqa: BLE001 —— 声音失败不该影响告警
+                                    pass
+                            self.on_log(f"命中：{summary}")
+                            db.log(self.id, f"命中：{summary}", "warn")
+                            done += 1
+                            with db.write() as c:
+                                c.execute(
+                                    "UPDATE instances SET progress_done=? WHERE id=?", (done, self.id)
+                                )
+                if self._stop.is_set():
+                    break
+                interval = max(200, int(guard.get("pollMs") or 800)) / 1000.0
+                self._stop.wait(interval)
+        finally:
+            close = getattr(grabber, "close", None)
+            if callable(close):
+                try:
+                    close()
+                except Exception:  # noqa: BLE001
+                    pass
 
     def _read_waybills(self, logi: dict) -> list[str]:
         from openpyxl import load_workbook
@@ -491,3 +656,14 @@ def get_runner(instance_id: str, on_log: Callable[[str], None] | None = None) ->
         if instance_id not in _RUNNERS:
             _RUNNERS[instance_id] = InstanceRunner(instance_id, on_log)
         return _RUNNERS[instance_id]
+
+
+def drop_runner(instance_id: str) -> InstanceRunner | None:
+    """从注册表摘掉一个实例的 runner（删除实例时用），返回被摘掉的那个（没有则 None）。
+
+    删除实例必须**同时**停线程、清注册表 —— 否则 monitor/guard 这种
+    `while not stop` 的循环会继续无限轮询屏幕、继续落命中与通知，
+    注册表里也永远留着一条已删实例的 runner。
+    """
+    with _RUNNER_LOCK:
+        return _RUNNERS.pop(instance_id, None)
